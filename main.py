@@ -9,7 +9,7 @@ TOKEN = os.environ["TOKEN"]
 # === CONFIGURACIÓN PERSONALIZABLE ===
 GUILD_ID = 1401779980945592400          # ID de tu servidor
 LOG_CHANNEL_ID = 1405694108302970910    # ID del canal de logs
-WARN_ROLE_ID = 1401779980991725626      # ID del rol de advertencia
+WARN_ROLE_ID = 1406275869252522056      # ID del rol de advertencia
 WARN_ACTION_CHANNEL = 1401779987606016073  # Canal para acciones con 3 warns
 PROMOTE_CHANNEL = 1402294587967410338   # Canal para promociones
 DEMOTE_CHANNEL = 1402294931145625621    # Canal para degradaciones
@@ -559,6 +559,56 @@ async def historial(ctx, usuario_id: str = None):
     
     await ctx.send(embed=embed)
 
+# === COMANDO INFORMACIÓN (CON FOTO DEL SERVIDOR) ===
+@bot.command(aliases=['info', 'informacion'])
+async def información(ctx):
+    """Muestra la información importante del servidor"""
+    # === CONFIGURACIÓN PERSONALIZABLE (Edita estos valores) ===
+    TITULO = "🌍 Información del Servidor"
+    DESCRIPCION = "¡Bienvenido a nuestra comunidad! Aquí tienes los enlaces más importantes:"
+    COLOR = discord.Color.blue()
+    THUMBNAIL = "https://i.imgur.com/1w6eYVw.png"  # URL de imagen miniatura
+    SERVER_ICON = ctx.guild.icon.url if ctx.guild.icon else None  # Foto del servidor
+    CAMPOS = [
+        {"nombre": "🎮 IP del Servidor", "valor": "`mc.tuservidor.com`", "inline": True},
+        {"nombre": "🛒 Tienda", "valor": "[Comprar rangos](https://tienda.tuservidor.com)", "inline": True},
+        {"nombre": "📱 Discord", "valor": "[Únete a nuestro Discord](https://discord.gg/tuinvitacion)", "inline": True},
+        {"nombre": "📜 Reglas", "valor": "[Ver reglas del servidor](https://tuservidor.com/reglas)", "inline": False},
+    ]
+    IMAGEN_FINAL = "https://i.imgur.com/3JtVr7Q.png"  # URL de imagen grande al final
+    # ========================================================
+
+    embed = discord.Embed(
+        title=TITULO,
+        description=DESCRIPCION,
+        color=COLOR
+    )
+    
+    # Añadir miniatura
+    if THUMBNAIL:
+        embed.set_thumbnail(url=THUMBNAIL)
+    
+    # Añadir foto del servidor si está disponible
+    if SERVER_ICON:
+        embed.set_author(name=ctx.guild.name, icon_url=SERVER_ICON)
+    
+    # Añadir campos personalizados
+    for campo in CAMPOS:
+        embed.add_field(
+            name=campo["nombre"],
+            value=campo["valor"],
+            inline=campo.get("inline", True)
+        )
+    
+    # Añadir imagen final si está configurada
+    if IMAGEN_FINAL:
+        embed.set_image(url=IMAGEN_FINAL)
+    
+    # Añadir footer personalizado
+    embed.set_footer(text=f"Solicitado por {ctx.author.display_name}", icon_url=ctx.author.display_avatar.url)
+    
+    await ctx.send(embed=embed)
+
 # === COMANDO HELP ===
 @bot.command()
 async def help(ctx):
@@ -599,7 +649,8 @@ async def help(ctx):
         value=(
             "`god help` - Muestra este mensaje de ayuda\n"
             "`god ping` - Comprueba la latencia del bot\n"
-            "`god historial <id>` - Muestra historial completo de acciones"
+            "`god historial <id>` - Muestra historial completo de acciones\n"
+            "`god información` - Muestra información del servidor"
         ),
         inline=False
     )
@@ -611,7 +662,8 @@ async def help(ctx):
             "`god ban 123456789012345678 1h Spam`\n"
             "`god promote @Usuario @Novato @Experto Por buen desempeño`\n"
             "`god mute 123456789012345678 30m Lenguaje inapropiado`\n"
-            "`god historial 123456789012345678`"
+            "`god historial 123456789012345678`\n"
+            "`god info`"
         ),
         inline=False
     )
