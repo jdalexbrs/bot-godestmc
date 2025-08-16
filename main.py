@@ -541,7 +541,7 @@ async def promote(ctx, member: discord.Member = None, old_role: discord.Role = N
         
         # Embed de ejemplo (personalizable)
         embed = discord.Embed(
-            title="🎉 Promoción de Rango",
+            title="🎉 Promote",
             description=f"¡Felicidades {member.mention}! Has sido ascendido.",
             color=discord.Color.gold()
         )
@@ -552,7 +552,7 @@ async def promote(ctx, member: discord.Member = None, old_role: discord.Role = N
         embed.set_thumbnail(url=member.display_avatar.url)
         
         await ctx.send(embed=embed)
-        await send_rank_log("⬆️ Promoción", member, ctx.author, old_role, new_role, reason)
+        await send_rank_log("⬆️ Promote", member, ctx.author, old_role, new_role, reason)
         
     except discord.Forbidden:
         await ctx.send(embed=error_embed("❌ Error", "No tengo permisos para gestionar estos roles"))
@@ -587,7 +587,7 @@ async def demote(ctx, member: discord.Member = None, old_role: discord.Role = No
         
         # Embed de ejemplo (personalizable)
         embed = discord.Embed(
-            title="🔻 Degradación de Rango",
+            title="🔻 Demote",
             description=f"{member.mention} ha sido degradado de rango.",
             color=discord.Color.dark_grey()
         )
@@ -598,7 +598,7 @@ async def demote(ctx, member: discord.Member = None, old_role: discord.Role = No
         embed.set_thumbnail(url=member.display_avatar.url)
         
         await ctx.send(embed=embed)
-        await send_rank_log("⬇️ Degradación", member, ctx.author, old_role, new_role, reason)
+        await send_rank_log("⬇️ Demote", member, ctx.author, old_role, new_role, reason)
         
     except discord.Forbidden:
         await ctx.send(embed=error_embed("❌ Error", "No tengo permisos para gestionar estos roles"))
