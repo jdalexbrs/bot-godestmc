@@ -567,15 +567,14 @@ async def información(ctx):
     TITULO = "🌍 Información del Servidor"
     DESCRIPCION = "¡Bienvenido a nuestra comunidad! Aquí tienes los enlaces más importantes:"
     COLOR = discord.Color.blue()
-    THUMBNAIL = "https://i.imgur.com/1w6eYVw.png"  # URL de imagen miniatura
     SERVER_ICON = ctx.guild.icon.url if ctx.guild.icon else None  # Foto del servidor
     CAMPOS = [
-        {"nombre": "🎮 IP del Servidor", "valor": "`mc.tuservidor.com`", "inline": True},
-        {"nombre": "🛒 Tienda", "valor": "[Comprar rangos](https://tienda.tuservidor.com)", "inline": True},
+        {"nombre": "🎮 IP del Servidor", "valor": "`PROXIMAMENTE`", "inline": True},
+        {"nombre": "🛒 Tienda", "valor": "`PROXIMAMENTE`", "inline": True},
         {"nombre": "📱 Discord", "valor": "[Únete a nuestro Discord](https://discord.gg/tuinvitacion)", "inline": True},
         {"nombre": "📜 Reglas", "valor": "[Ver reglas del servidor](https://tuservidor.com/reglas)", "inline": False},
     ]
-    IMAGEN_FINAL = "https://i.imgur.com/3JtVr7Q.png"  # URL de imagen grande al final
+    IMAGEN_FINAL = "https://i.imgur.com/3JtVr7Q.png"  # URL de imagen grande al final (opcional)
     # ========================================================
 
     embed = discord.Embed(
@@ -584,13 +583,9 @@ async def información(ctx):
         color=COLOR
     )
     
-    # Añadir miniatura
-    if THUMBNAIL:
-        embed.set_thumbnail(url=THUMBNAIL)
-    
-    # Añadir foto del servidor si está disponible
+    # Usar el icono del servidor como miniatura
     if SERVER_ICON:
-        embed.set_author(name=ctx.guild.name, icon_url=SERVER_ICON)
+        embed.set_thumbnail(url=SERVER_ICON)
     
     # Añadir campos personalizados
     for campo in CAMPOS:
