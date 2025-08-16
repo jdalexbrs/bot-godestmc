@@ -595,8 +595,6 @@ async def información(ctx):
         )
     
     # Añadir imagen final si está configurada
-    if IMAGEN_FINAL:
-        embed.set_image(url=IMAGEN_FINAL)
     
     # Añadir footer personalizado
     embed.set_footer(text=f"Solicitado por {ctx.author.display_name}", icon_url=ctx.author.display_avatar.url)
