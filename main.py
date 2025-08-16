@@ -45,7 +45,7 @@ def error_embed(title, description):
 async def on_ready():
     print(f"✅ Bot conectado como {bot.user}")
 
-# BAN
+# ========= COMANDO BAN =========
 @bot.command()
 @commands.has_permissions(ban_members=True)
 async def ban(ctx, user_id: str = None, tiempo: str = None, *, reason="No se especificó razón"):
@@ -63,20 +63,29 @@ async def ban(ctx, user_id: str = None, tiempo: str = None, *, reason="No se esp
         await ctx.send(embed=error_embed("❌ Error", "El ID de usuario debe ser numérico."))
         return
 
-    guild = bot.get_guild(GUILD_ID)
-    user = await bot.fetch_user(user_id)
-    await guild.ban(user, reason=reason)
-    await send_log("🚫 Ban", user, ctx.author, reason, discord.Color.red(), tiempo)
-    await ctx.send(f"✅ Usuario {user} baneado.")
+    try:
+        guild = bot.get_guild(GUILD_ID)
+        user = await bot.fetch_user(user_id)
+        await guild.ban(user, reason=reason)
+        await send_log("🚫 Ban", user, ctx.author, reason, discord.Color.red(), tiempo)
+        await ctx.send(f"✅ Usuario {user} baneado.")
+        
+        if tiempo:
+            seconds = parse_time(tiempo)
+            if seconds:
+                await asyncio.sleep(seconds)
+                try:
+                    await guild.unban(user)
+                    await send_log("♻️ Unban automático", user, ctx.author, "Fin de sanción", discord.Color.green())
+                except discord.Forbidden:
+                    await ctx.send("❌ Error: No tengo permisos para desbanear")
 
-    if tiempo:
-        seconds = parse_time(tiempo)
-        if seconds:
-            await asyncio.sleep(seconds)
-            await guild.unban(user)
-            await send_log("♻️ Unban automático", user, ctx.author, "Fin de sanción", discord.Color.green())
+    except discord.Forbidden:
+        await ctx.send(embed=error_embed("❌ Error", "No tengo permisos para banear usuarios"))
+    except discord.NotFound:
+        await ctx.send(embed=error_embed("❌ Error", "Usuario no encontrado"))
 
-# KICK
+# ========= COMANDO KICK =========
 @bot.command()
 @commands.has_permissions(kick_members=True)
 async def kick(ctx, user_id: str = None, *, reason="No se especificó razón"):
@@ -94,16 +103,19 @@ async def kick(ctx, user_id: str = None, *, reason="No se especificó razón"):
         await ctx.send(embed=error_embed("❌ Error", "El ID de usuario debe ser numérico."))
         return
 
-    guild = bot.get_guild(GUILD_ID)
-    member = guild.get_member(user_id)
-    if member:
-        await member.kick(reason=reason)
-        await send_log("👢 Kick", member, ctx.author, reason, discord.Color.orange())
-        await ctx.send(f"✅ Usuario {member} expulsado.")
-    else:
-        await ctx.send(embed=error_embed("❌ Error", "Usuario no encontrado."))
+    try:
+        guild = bot.get_guild(GUILD_ID)
+        member = guild.get_member(user_id)
+        if member:
+            await member.kick(reason=reason)
+            await send_log("👢 Kick", member, ctx.author, reason, discord.Color.orange())
+            await ctx.send(f"✅ Usuario {member} expulsado.")
+        else:
+            await ctx.send(embed=error_embed("❌ Error", "Usuario no encontrado en el servidor"))
+    except discord.Forbidden:
+        await ctx.send(embed=error_embed("❌ Error", "No tengo permisos para expulsar usuarios"))
 
-# MUTE
+# ========= COMANDO MUTE =========
 @bot.command()
 @commands.has_permissions(moderate_members=True)
 async def mute(ctx, user_id: str = None, tiempo: str = None, *, reason="No se especificó razón"):
@@ -121,31 +133,34 @@ async def mute(ctx, user_id: str = None, tiempo: str = None, *, reason="No se es
         await ctx.send(embed=error_embed("❌ Error", "El ID de usuario debe ser numérico."))
         return
 
-    guild = bot.get_guild(GUILD_ID)
-    member = guild.get_member(user_id)
-    if member:
+    try:
+        guild = bot.get_guild(GUILD_ID)
+        member = guild.get_member(user_id)
+        if not member:
+            await ctx.send(embed=error_embed("❌ Error", "Usuario no encontrado en el servidor"))
+            return
+            
         seconds = parse_time(tiempo)
         if not seconds:
             await ctx.send(embed=error_embed("❌ Error", "Formato de tiempo inválido. Usa: `10s`, `5m`, `2h`, `1d`."))
             return
+            
         until = discord.utils.utcnow() + timedelta(seconds=seconds)
         await member.timeout(until, reason=reason)
         await send_log("🔇 Mute", member, ctx.author, reason, discord.Color.dark_gray(), tiempo)
         await ctx.send(f"✅ Usuario {member} muteado por {tiempo}.")
-    else:
-        await ctx.send(embed=error_embed("❌ Error", "Usuario no encontrado."))
+        
+    except discord.Forbidden:
+        await ctx.send(embed=error_embed("❌ Error", "No tengo permisos para mutear usuarios"))
 
-# WARN
+# ========= COMANDO UNMUTE =========
 @bot.command()
-async def warn(ctx, user_id: str = None, tiempo: str = None, *, reason="No se especificó razón"):
-    if WARN_ROLE_ID not in [role.id for role in ctx.author.roles]:
-        await ctx.send(embed=error_embed("❌ Error", "No tienes el rol necesario para usar este comando."))
-        return
-
+@commands.has_permissions(moderate_members=True)
+async def unmute(ctx, user_id: str = None, *, reason="No se especificó razón"):
     if not user_id:
         embed = error_embed(
             "❌ Uso incorrecto",
-            "Formato correcto:\n`god warn <id_usuario> [tiempo] [razón]`\nEjemplo: `god warn 123456789012345678 1d Comportamiento inapropiado`"
+            "Formato correcto:\n`god unmute <id_usuario> [razón]`\nEjemplo: `god unmute 123456789012345678`"
         )
         await ctx.send(embed=embed)
         return
@@ -156,13 +171,60 @@ async def warn(ctx, user_id: str = None, tiempo: str = None, *, reason="No se es
         await ctx.send(embed=error_embed("❌ Error", "El ID de usuario debe ser numérico."))
         return
 
-    guild = bot.get_guild(GUILD_ID)
-    member = guild.get_member(user_id)
-    if member:
-        await send_log("⚠️ Warn", member, ctx.author, reason, discord.Color.yellow(), tiempo)
+    try:
+        guild = bot.get_guild(GUILD_ID)
+        member = guild.get_member(user_id)
+        if not member:
+            await ctx.send(embed=error_embed("❌ Error", "Usuario no encontrado en el servidor"))
+            return
+            
+        if not member.is_timed_out():
+            await ctx.send(embed=error_embed("❌ Error", "El usuario no está muteado"))
+            return
+            
+        await member.timeout(None, reason=reason)
+        await send_log("🔊 Unmute", member, ctx.author, reason, discord.Color.green())
+        await ctx.send(f"✅ Usuario {member} desmuteado.")
+        
+    except discord.Forbidden:
+        await ctx.send(embed=error_embed("❌ Error", "No tengo permisos para desmutear usuarios"))
+
+# ========= COMANDO WARN =========
+@bot.command()
+@commands.has_permissions(manage_roles=True)
+async def warn(ctx, user_id: str = None, *, reason="No se especificó razón"):
+    if not user_id:
+        embed = error_embed(
+            "❌ Uso incorrecto",
+            "Formato correcto:\n`god warn <id_usuario> [razón]`\nEjemplo: `god warn 123456789012345678 Comportamiento inapropiado`"
+        )
+        await ctx.send(embed=embed)
+        return
+
+    try:
+        user_id = int(user_id)
+    except ValueError:
+        await ctx.send(embed=error_embed("❌ Error", "El ID de usuario debe ser numérico."))
+        return
+
+    try:
+        guild = bot.get_guild(GUILD_ID)
+        member = guild.get_member(user_id)
+        if not member:
+            await ctx.send(embed=error_embed("❌ Error", "Usuario no encontrado en el servidor"))
+            return
+            
+        warn_role = guild.get_role(WARN_ROLE_ID)
+        if not warn_role:
+            await ctx.send(embed=error_embed("❌ Error", "Rol de warn no encontrado"))
+            return
+            
+        await member.add_roles(warn_role, reason=reason)
+        await send_log("⚠️ Warn", member, ctx.author, reason, discord.Color.yellow())
         await ctx.send(f"⚠️ Usuario {member} advertido.")
-    else:
-        await ctx.send(embed=error_embed("❌ Error", "Usuario no encontrado."))
+        
+    except discord.Forbidden:
+        await ctx.send(embed=error_embed("❌ Error", "No tengo permisos para asignar el rol de warn"))
 
 keep_alive()
 bot.run(TOKEN)
