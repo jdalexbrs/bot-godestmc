@@ -571,10 +571,9 @@ async def información(ctx):
     CAMPOS = [
         {"nombre": "🎮 IP del Servidor", "valor": "`PROXIMAMENTE`", "inline": True},
         {"nombre": "🛒 Tienda", "valor": "`PROXIMAMENTE`", "inline": True},
-        {"nombre": "📱 Discord", "valor": "[Únete a nuestro Discord](https://discord.gg/tuinvitacion)", "inline": True},
-        {"nombre": "📜 Reglas", "valor": "[Ver reglas del servidor](https://tuservidor.com/reglas)", "inline": False},
+        {"nombre": "📱 Discord", "valor": "[Únete a nuestro Discord](https://discord.gg/YzaWeJZFrp)", "inline": True},
+        {"nombre": "📜 Reglas", "valor": "[Ver reglas del servidor](https://discord.com/channels/1401779980945592400/1402405577027752085)", "inline": False},
     ]
-    IMAGEN_FINAL = "https://i.imgur.com/3JtVr7Q.png"  # URL de imagen grande al final (opcional)
     # ========================================================
 
     embed = discord.Embed(
