@@ -1,35 +1,51 @@
 import discord
 from discord.ext import commands
-import os, asyncio, re
+import os, asyncio, re, json
 from datetime import datetime, timedelta
 from keep_alive import keep_alive
 
 TOKEN = os.environ["TOKEN"]
 
-GUILD_ID = 1401779980945592400
-LOG_CHANNEL_ID = 1405694108302970910
-WARN_ROLE_ID = 1406275869252522056
-
-# Almacenamiento en memoria para sanciones
-sanciones_data = {}
+# === CONFIGURACIÓN PERSONALIZABLE ===
+GUILD_ID = 1401779980945592400          # ID de tu servidor
+LOG_CHANNEL_ID = 1405694108302970910    # ID del canal de logs
+WARN_ROLE_ID = 1401779980991725626      # ID del rol de advertencia (cambiar si es necesario)
+WARN_ACTION_CHANNEL = 1401779987606016073  # Canal para acciones con 3 warns
+PROMOTE_CHANNEL = 1402294587967410338   # Canal para promociones
+DEMOTE_CHANNEL = 1402294931145625621    # Canal para degradaciones
+# ====================================
 
 intents = discord.Intents.default()
 intents.members = True
 intents.message_content = True
 
-# SOLUCIÓN: Desactivar el comando help integrado
+# Desactivar el comando help integrado
 bot = commands.Bot(
     command_prefix="god ",
     intents=intents,
-    help_command=None  # Esta línea soluciona el error
+    help_command=None
 )
 
-# ========= SISTEMA DE REGISTRO DE SANCIONES (EN MEMORIA) =========
+# === SISTEMA PERSISTENTE DE SANCIONES ===
+SANCIONES_FILE = "sanciones.json"
+
+def cargar_sanciones():
+    try:
+        with open(SANCIONES_FILE, 'r') as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+def guardar_sanciones(data):
+    with open(SANCIONES_FILE, 'w') as f:
+        json.dump(data, f, indent=2)
+
 def guardar_sancion(usuario_id, tipo, razon, moderador_id, duracion=None):
+    sanciones = cargar_sanciones()
     usuario_id = str(usuario_id)
     
-    if usuario_id not in sanciones_data:
-        sanciones_data[usuario_id] = []
+    if usuario_id not in sanciones:
+        sanciones[usuario_id] = []
     
     sancion = {
         "tipo": tipo,
@@ -39,18 +55,66 @@ def guardar_sancion(usuario_id, tipo, razon, moderador_id, duracion=None):
         "duracion": duracion
     }
     
-    sanciones_data[usuario_id].append(sancion)
+    sanciones[usuario_id].append(sancion)
+    guardar_sanciones(sanciones)
     return sancion
 
 def obtener_sanciones_usuario(usuario_id):
+    sanciones = cargar_sanciones()
     usuario_id = str(usuario_id)
-    return sanciones_data.get(usuario_id, [])
+    return sanciones.get(usuario_id, [])
 
 def obtener_warns_usuario(usuario_id):
     todas = obtener_sanciones_usuario(usuario_id)
     return [s for s in todas if s["tipo"] == "warn"]
 
-# ========= FUNCIONES AUXILIARES =========
+# === CLASE PARA LOS BOTONES DE DECISIÓN ===
+class WarnDecisionView(discord.ui.View):
+    def __init__(self, user_id):
+        super().__init__(timeout=None)
+        self.user_id = user_id
+    
+    @discord.ui.button(label="Aplicar Sanción", style=discord.ButtonStyle.green, emoji="✅")
+    async def apply_sanction(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Deshabilitar botones
+        for item in self.children:
+            item.disabled = True
+        
+        await interaction.response.edit_message(view=self)
+        
+        # Obtener usuario y aplicar sanción
+        guild = interaction.guild
+        member = guild.get_member(int(self.user_id))
+        
+        if member:
+            try:
+                # Cambiar a mute de 1 día como sanción por defecto
+                until = discord.utils.utcnow() + timedelta(days=1)
+                await member.timeout(until, reason="Acumulación de 3 warns")
+                guardar_sancion(self.user_id, "mute", "Acumulación de 3 warns", interaction.user.id, "1d")
+                
+                embed = discord.Embed(
+                    title="🚨 Sanción Aplicada",
+                    description=f"Usuario {member.mention} ha sido muteado por 1 día por acumulación de 3 warns",
+                    color=discord.Color.red()
+                )
+                await interaction.followup.send(embed=embed)
+                
+            except discord.Forbidden:
+                await interaction.followup.send("❌ No tengo permisos para mutear a este usuario")
+        else:
+            await interaction.followup.send("❌ Usuario no encontrado en el servidor")
+    
+    @discord.ui.button(label="Cerrar Caso", style=discord.ButtonStyle.red, emoji="❌")
+    async def close_case(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Deshabilitar botones
+        for item in self.children:
+            item.disabled = True
+        
+        await interaction.response.edit_message(view=self)
+        await interaction.followup.send("✅ Caso cerrado sin sanción adicional")
+
+# === FUNCIONES AUXILIARES ===
 def parse_time(t):
     match = re.match(r"(\d+)([smhd])", t.lower())
     if not match:
@@ -100,7 +164,77 @@ async def on_ready():
     print(f"✅ Bot conectado como {bot.user}")
     await bot.change_presence(activity=discord.Activity(type=discord.ActivityType.watching, name="god help"))
 
-# ========= COMANDO WARNINGS =========
+# === COMANDO WARN (CON SISTEMA DE 3 WARNS) ===
+@bot.command()
+@commands.has_permissions(manage_roles=True)
+async def warn(ctx, user_id: str = None, *, reason="No se especificó razón"):
+    if not user_id:
+        embed = error_embed(
+            "❌ Uso incorrecto",
+            "Formato correcto:\n`god warn <id_usuario> [razón]`\nEjemplo: `god warn 123456789012345678 Comportamiento inapropiado`"
+        )
+        await ctx.send(embed=embed)
+        return
+
+    try:
+        user_id = int(user_id)
+    except ValueError:
+        await ctx.send(embed=error_embed("❌ Error", "El ID de usuario debe ser numérico."))
+        return
+
+    try:
+        guild = bot.get_guild(GUILD_ID)
+        member = guild.get_member(user_id)
+        if not member:
+            await ctx.send(embed=error_embed("❌ Error", "Usuario no encontrado en el servidor"))
+            return
+            
+        warn_role = guild.get_role(WARN_ROLE_ID)
+        if not warn_role:
+            await ctx.send(embed=error_embed("❌ Error", "Rol de warn no encontrado"))
+            return
+            
+        # Aplicar warn
+        await member.add_roles(warn_role, reason=reason)
+        guardar_sancion(user_id, "warn", reason, ctx.author.id)
+        
+        # Notificar al usuario
+        notified = await notify_user(member, "advertencia", reason, None, ctx.author)
+        
+        await send_log("⚠️ Warn", member, ctx.author, reason, discord.Color.yellow())
+        await ctx.send(f"⚠️ Usuario {member} advertido.")
+        
+        # Verificar si tiene 3 warns
+        warns = obtener_warns_usuario(user_id)
+        if len(warns) >= 3:
+            # Crear embed para acción
+            embed = discord.Embed(
+                title="🚨 Usuario con 3 advertencias",
+                description=(
+                    f"El usuario {member.mention} (`{user_id}`) ha alcanzado 3 advertencias.\n"
+                    "¿Deseas aplicar una sanción mayor?"
+                ),
+                color=discord.Color.gold()
+            )
+            
+            # Añadir resumen de sanciones
+            embed.add_field(
+                name="📜 Historial de advertencias",
+                value=f"**Total:** {len(warns)} warns",
+                inline=False
+            )
+            
+            # Enviar al canal de decisiones
+            channel = bot.get_channel(WARN_ACTION_CHANNEL)
+            if channel:
+                view = WarnDecisionView(str(user_id))
+                await channel.send(embed=embed, view=view)
+                await ctx.send(f"✅ Se ha notificado en <#{WARN_ACTION_CHANNEL}> sobre las 3 advertencias")
+        
+    except discord.Forbidden:
+        await ctx.send(embed=error_embed("❌ Error", "No tengo permisos para asignar el rol de warn"))
+
+# === COMANDO WARNINGS ===
 @bot.command()
 @commands.has_permissions(manage_roles=True)
 async def warnings(ctx, usuario_id: str = None):
@@ -136,7 +270,7 @@ async def warnings(ctx, usuario_id: str = None):
     )
     
     for i, warn in enumerate(warns, 1):
-        fecha = datetime.fromisoformat(warn["fecha"]).strftime("%Y-%m-%d %H:%M:%S UTC")
+        fecha = datetime.fromisoformat(warn["fecha"]).strftime("%d/%m/%Y %H:%M UTC")
         moderador = f"<@{warn['moderador']}>"
         embed.add_field(
             name=f"Advertencia #{i}",
@@ -146,7 +280,7 @@ async def warnings(ctx, usuario_id: str = None):
 
     await ctx.send(embed=embed)
 
-# ========= COMANDO SANCIONES =========
+# === COMANDO SANCIONES ===
 @bot.command()
 @commands.has_permissions(manage_roles=True)
 async def sanciones(ctx, usuario_id: str = None):
@@ -200,7 +334,7 @@ async def sanciones(ctx, usuario_id: str = None):
     
     for sancion in sanciones_ordenadas[:10]:  # Mostrar máximo 10 sanciones
         tipo = sancion["tipo"]
-        fecha = datetime.fromisoformat(sancion["fecha"]).strftime("%Y-%m-%d %H:%M:%S UTC")
+        fecha = datetime.fromisoformat(sancion["fecha"]).strftime("%d/%m/%Y %H:%M")
         moderador = f"<@{sancion['moderador']}>"
         
         # Emojis según tipo de sanción
@@ -228,7 +362,133 @@ async def sanciones(ctx, usuario_id: str = None):
     
     await ctx.send(embed=embed)
 
-# ========= COMANDO HELP =========
+# === COMANDO PROMOTE (CON ENVÍO A CANAL ESPECÍFICO) ===
+@bot.command()
+@commands.has_permissions(manage_roles=True)
+async def promote(ctx, member: discord.Member = None, old_role: discord.Role = None, new_role: discord.Role = None, *, reason="No se especificó razón"):
+    if not member or not old_role or not new_role:
+        embed = error_embed(
+            "❌ Uso incorrecto",
+            "Formato correcto:\n`god promote <@usuario> <@rango_anterior> <@nuevo_rango> [razón]`\n"
+            "Ejemplo: `god promote @Usuario @Novato @Experto Por buen desempeño`"
+        )
+        await ctx.send(embed=embed)
+        return
+    
+    try:
+        # Verificar que el usuario tiene el rol anterior
+        if old_role not in member.roles:
+            await ctx.send(embed=error_embed("❌ Error", f"El usuario no tiene el rol {old_role.mention}"))
+            return
+        
+        # Verificar jerarquía de roles
+        if ctx.guild.me.top_role <= new_role:
+            await ctx.send(embed=error_embed("❌ Error", "No puedo asignar un rol superior al mío"))
+            return
+        
+        # Realizar promoción
+        await member.remove_roles(old_role)
+        await member.add_roles(new_role)
+        
+        # Crear embed
+        embed = discord.Embed(
+            title="🎉 Promoción de Rango",
+            description=f"¡Felicidades {member.mention}! Has sido ascendido.",
+            color=discord.Color.gold()
+        )
+        embed.add_field(name="Rango Anterior", value=old_role.mention, inline=True)
+        embed.add_field(name="Nuevo Rango", value=new_role.mention, inline=True)
+        embed.add_field(name="Razón", value=reason, inline=False)
+        embed.add_field(name="Moderador", value=ctx.author.mention, inline=False)
+        embed.set_thumbnail(url=member.display_avatar.url)
+        
+        # Enviar al canal específico
+        channel = bot.get_channel(PROMOTE_CHANNEL)
+        if channel:
+            await channel.send(embed=embed)
+            await ctx.send(f"✅ Promoción registrada en <#{PROMOTE_CHANNEL}>")
+        else:
+            await ctx.send(embed=error_embed("❌ Error", "Canal de promociones no encontrado"))
+        
+        # Registrar en logs
+        await send_rank_log("⬆️ Promoción", member, ctx.author, old_role, new_role, reason)
+        
+    except discord.Forbidden:
+        await ctx.send(embed=error_embed("❌ Error", "No tengo permisos para gestionar estos roles"))
+
+# === COMANDO DEMOTE (CON ENVÍO A CANAL ESPECÍFICO) ===
+@bot.command()
+@commands.has_permissions(manage_roles=True)
+async def demote(ctx, member: discord.Member = None, old_role: discord.Role = None, new_role: discord.Role = None, *, reason="No se especificó razón"):
+    if not member or not old_role or not new_role:
+        embed = error_embed(
+            "❌ Uso incorrecto",
+            "Formato correcto:\n`god demote <@usuario> <@rango_anterior> <@nuevo_rango> [razón]`\n"
+            "Ejemplo: `god demote @Usuario @Experto @Novato Por bajo rendimiento`"
+        )
+        await ctx.send(embed=embed)
+        return
+    
+    try:
+        # Verificar que el usuario tiene el rol anterior
+        if old_role not in member.roles:
+            await ctx.send(embed=error_embed("❌ Error", f"El usuario no tiene el rol {old_role.mention}"))
+            return
+        
+        # Verificar jerarquía de roles
+        if ctx.guild.me.top_role <= old_role or ctx.guild.me.top_role <= new_role:
+            await ctx.send(embed=error_embed("❌ Error", "No puedo gestionar roles superiores al mío"))
+            return
+        
+        # Realizar degradación
+        await member.remove_roles(old_role)
+        await member.add_roles(new_role)
+        
+        # Crear embed
+        embed = discord.Embed(
+            title="🔻 Degradación de Rango",
+            description=f"{member.mention} ha sido degradado de rango.",
+            color=discord.Color.dark_grey()
+        )
+        embed.add_field(name="Rango Anterior", value=old_role.mention, inline=True)
+        embed.add_field(name="Nuevo Rango", value=new_role.mention, inline=True)
+        embed.add_field(name="Razón", value=reason, inline=False)
+        embed.add_field(name="Moderador", value=ctx.author.mention, inline=False)
+        embed.set_thumbnail(url=member.display_avatar.url)
+        
+        # Enviar al canal específico
+        channel = bot.get_channel(DEMOTE_CHANNEL)
+        if channel:
+            await channel.send(embed=embed)
+            await ctx.send(f"✅ Degradación registrada en <#{DEMOTE_CHANNEL}>")
+        else:
+            await ctx.send(embed=error_embed("❌ Error", "Canal de degradaciones no encontrado"))
+        
+        # Registrar en logs
+        await send_rank_log("⬇️ Degradación", member, ctx.author, old_role, new_role, reason)
+        
+    except discord.Forbidden:
+        await ctx.send(embed=error_embed("❌ Error", "No tengo permisos para gestionar estos roles"))
+
+# Función para registrar cambios de rango en el log
+async def send_rank_log(action, member, moderator, old_role, new_role, reason):
+    embed = discord.Embed(
+        title=f"{action}",
+        color=discord.Color.blue()
+    )
+    embed.set_thumbnail(url=member.display_avatar.url)
+    embed.add_field(name="👤 Usuario", value=f"{member} ({member.id})", inline=False)
+    embed.add_field(name="🛡 Moderador", value=f"{moderator} ({moderator.id})", inline=False)
+    embed.add_field(name="🔽 Rango Anterior", value=old_role.mention, inline=True)
+    embed.add_field(name="🔼 Nuevo Rango", value=new_role.mention, inline=True)
+    embed.add_field(name="📄 Razón", value=reason, inline=False)
+    embed.set_footer(text="Sistema de Rangos")
+    
+    channel = bot.get_channel(LOG_CHANNEL_ID)
+    if channel:
+        await channel.send(embed=embed)
+
+# === COMANDO HELP ===
 @bot.command()
 async def help(ctx):
     embed = discord.Embed(
@@ -299,7 +559,7 @@ async def help(ctx):
     
     await ctx.send(embed=embed)
 
-# ========= COMANDO PING =========
+# === COMANDO PING ===
 @bot.command()
 async def ping(ctx):
     """Comprueba la latencia del bot"""
@@ -311,7 +571,7 @@ async def ping(ctx):
     )
     await ctx.send(embed=embed)
 
-# ========= COMANDOS DE MODERACIÓN =========
+# === COMANDOS DE MODERACIÓN ===
 @bot.command()
 @commands.has_permissions(ban_members=True)
 async def ban(ctx, user_id: str = None, tiempo: str = None, *, reason="No se especificó razón"):
@@ -469,157 +729,6 @@ async def unmute(ctx, user_id: str = None, *, reason="No se especificó razón")
         
     except discord.Forbidden:
         await ctx.send(embed=error_embed("❌ Error", "No tengo permisos para desmutear usuarios"))
-
-@bot.command()
-@commands.has_permissions(manage_roles=True)
-async def warn(ctx, user_id: str = None, *, reason="No se especificó razón"):
-    if not user_id:
-        embed = error_embed(
-            "❌ Uso incorrecto",
-            "Formato correcto:\n`god warn <id_usuario> [razón]`\nEjemplo: `god warn 123456789012345678 Comportamiento inapropiado`"
-        )
-        await ctx.send(embed=embed)
-        return
-
-    try:
-        user_id = int(user_id)
-    except ValueError:
-        await ctx.send(embed=error_embed("❌ Error", "El ID de usuario debe ser numérico."))
-        return
-
-    try:
-        guild = bot.get_guild(GUILD_ID)
-        member = guild.get_member(user_id)
-        if not member:
-            await ctx.send(embed=error_embed("❌ Error", "Usuario no encontrado en el servidor"))
-            return
-            
-        warn_role = guild.get_role(WARN_ROLE_ID)
-        if not warn_role:
-            await ctx.send(embed=error_embed("❌ Error", "Rol de warn no encontrado"))
-            return
-            
-        await member.add_roles(warn_role, reason=reason)
-        guardar_sancion(user_id, "warn", reason, ctx.author.id)
-        
-        # Notificar al usuario
-        notified = await notify_user(member, "advertencia", reason, None, ctx.author)
-        
-        await send_log("⚠️ Warn", member, ctx.author, reason, discord.Color.yellow())
-        await ctx.send(f"⚠️ Usuario {member} advertido.")
-        
-    except discord.Forbidden:
-        await ctx.send(embed=error_embed("❌ Error", "No tengo permisos para asignar el rol de warn"))
-
-# ========= COMANDO PROMOTE =========
-@bot.command()
-@commands.has_permissions(manage_roles=True)
-async def promote(ctx, member: discord.Member = None, old_role: discord.Role = None, new_role: discord.Role = None, *, reason="No se especificó razón"):
-    if not member or not old_role or not new_role:
-        embed = error_embed(
-            "❌ Uso incorrecto",
-            "Formato correcto:\n`god promote <@usuario> <@rango_anterior> <@nuevo_rango> [razón]`\n"
-            "Ejemplo: `god promote @Usuario @Novato @Experto Por buen desempeño`"
-        )
-        await ctx.send(embed=embed)
-        return
-    
-    try:
-        # Verificar que el usuario tiene el rol anterior
-        if old_role not in member.roles:
-            await ctx.send(embed=error_embed("❌ Error", f"El usuario no tiene el rol {old_role.mention}"))
-            return
-        
-        # Verificar jerarquía de roles
-        if ctx.guild.me.top_role <= new_role:
-            await ctx.send(embed=error_embed("❌ Error", "No puedo asignar un rol superior al mío"))
-            return
-        
-        # Realizar promoción
-        await member.remove_roles(old_role)
-        await member.add_roles(new_role)
-        
-        # Embed de ejemplo (personalizable)
-        embed = discord.Embed(
-            title="🎉 Promote",
-            description=f"¡Felicidades {member.mention}! Has sido ascendido.",
-            color=discord.Color.gold()
-        )
-        embed.add_field(name="Rango Anterior", value=old_role.mention, inline=True)
-        embed.add_field(name="Nuevo Rango", value=new_role.mention, inline=True)
-        embed.add_field(name="Razón", value=reason, inline=False)
-        embed.add_field(name="Moderador", value=ctx.author.mention, inline=False)
-        embed.set_thumbnail(url=member.display_avatar.url)
-        
-        await ctx.send(embed=embed)
-        await send_rank_log("⬆️ Promote", member, ctx.author, old_role, new_role, reason)
-        
-    except discord.Forbidden:
-        await ctx.send(embed=error_embed("❌ Error", "No tengo permisos para gestionar estos roles"))
-
-# ========= COMANDO DEMOTE =========
-@bot.command()
-@commands.has_permissions(manage_roles=True)
-async def demote(ctx, member: discord.Member = None, old_role: discord.Role = None, new_role: discord.Role = None, *, reason="No se especificó razón"):
-    if not member or not old_role or not new_role:
-        embed = error_embed(
-            "❌ Uso incorrecto",
-            "Formato correcto:\n`god demote <@usuario> <@rango_anterior> <@nuevo_rango> [razón]`\n"
-            "Ejemplo: `god demote @Usuario @Experto @Novato Por bajo rendimiento`"
-        )
-        await ctx.send(embed=embed)
-        return
-    
-    try:
-        # Verificar que el usuario tiene el rol anterior
-        if old_role not in member.roles:
-            await ctx.send(embed=error_embed("❌ Error", f"El usuario no tiene el rol {old_role.mention}"))
-            return
-        
-        # Verificar jerarquía de roles
-        if ctx.guild.me.top_role <= old_role or ctx.guild.me.top_role <= new_role:
-            await ctx.send(embed=error_embed("❌ Error", "No puedo gestionar roles superiores al mío"))
-            return
-        
-        # Realizar degradación
-        await member.remove_roles(old_role)
-        await member.add_roles(new_role)
-        
-        # Embed de ejemplo (personalizable)
-        embed = discord.Embed(
-            title="🔻 Demote",
-            description=f"{member.mention} ha sido degradado de rango.",
-            color=discord.Color.dark_grey()
-        )
-        embed.add_field(name="Rango Anterior", value=old_role.mention, inline=True)
-        embed.add_field(name="Nuevo Rango", value=new_role.mention, inline=True)
-        embed.add_field(name="Razón", value=reason, inline=False)
-        embed.add_field(name="Moderador", value=ctx.author.mention, inline=False)
-        embed.set_thumbnail(url=member.display_avatar.url)
-        
-        await ctx.send(embed=embed)
-        await send_rank_log("⬇️ Demote", member, ctx.author, old_role, new_role, reason)
-        
-    except discord.Forbidden:
-        await ctx.send(embed=error_embed("❌ Error", "No tengo permisos para gestionar estos roles"))
-
-# Función para registrar cambios de rango en el log
-async def send_rank_log(action, member, moderator, old_role, new_role, reason):
-    embed = discord.Embed(
-        title=f"{action}",
-        color=discord.Color.blue()
-    )
-    embed.set_thumbnail(url=member.display_avatar.url)
-    embed.add_field(name="👤 Usuario", value=f"{member} ({member.id})", inline=False)
-    embed.add_field(name="🛡 Moderador", value=f"{moderator} ({moderator.id})", inline=False)
-    embed.add_field(name="🔽 Rango Anterior", value=old_role.mention, inline=True)
-    embed.add_field(name="🔼 Nuevo Rango", value=new_role.mention, inline=True)
-    embed.add_field(name="📄 Razón", value=reason, inline=False)
-    embed.set_footer(text="Sistema de Rangos")
-    
-    channel = bot.get_channel(LOG_CHANNEL_ID)
-    if channel:
-        await channel.send(embed=embed)
 
 keep_alive()
 bot.run(TOKEN)
