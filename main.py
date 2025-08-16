@@ -54,7 +54,7 @@ async def notify_user(user, action, reason, duration=None, moderator=None):
         embed.add_field(name="📝 Razón", value=reason, inline=False)
         if moderator:
             embed.add_field(name="👤 Moderador", value=f"{moderator.name}#{moderator.discriminator}", inline=True)
-        embed.set_footer(text="Servidor: " + (bot.get_guild(GUILD_ID).name)
+        embed.set_footer(text=f"Servidor: {bot.get_guild(GUILD_ID).name}")
         await user.send(embed=embed)
         return True
     except:
