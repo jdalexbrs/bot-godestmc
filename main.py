@@ -392,7 +392,7 @@ async def promote(ctx, member: discord.Member = None, old_role: discord.Role = N
         
         # Crear embed
         embed = discord.Embed(
-            title="🎉 Promoción de Rango",
+            title="🎉 Promote",
             description=f"¡Felicidades {member.mention}! Has sido ascendido.",
             color=discord.Color.gold()
         )
@@ -406,12 +406,12 @@ async def promote(ctx, member: discord.Member = None, old_role: discord.Role = N
         channel = bot.get_channel(PROMOTE_CHANNEL)
         if channel:
             await channel.send(embed=embed)
-            await ctx.send(f"✅ Promoción registrada en <#{PROMOTE_CHANNEL}>")
+            await ctx.send(f"✅ Promote registrada en <#{PROMOTE_CHANNEL}>")
         else:
             await ctx.send(embed=error_embed("❌ Error", "Canal de promociones no encontrado"))
         
         # Registrar en logs
-        await send_rank_log("⬆️ Promoción", member, ctx.author, old_role, new_role, reason)
+        await send_rank_log("⬆️ Promote", member, ctx.author, old_role, new_role, reason)
         
     except discord.Forbidden:
         await ctx.send(embed=error_embed("❌ Error", "No tengo permisos para gestionar estos roles"))
@@ -446,7 +446,7 @@ async def demote(ctx, member: discord.Member = None, old_role: discord.Role = No
         
         # Crear embed
         embed = discord.Embed(
-            title="🔻 Degradación de Rango",
+            title="🔻 Demote",
             description=f"{member.mention} ha sido degradado de rango.",
             color=discord.Color.dark_grey()
         )
@@ -460,12 +460,12 @@ async def demote(ctx, member: discord.Member = None, old_role: discord.Role = No
         channel = bot.get_channel(DEMOTE_CHANNEL)
         if channel:
             await channel.send(embed=embed)
-            await ctx.send(f"✅ Degradación registrada en <#{DEMOTE_CHANNEL}>")
+            await ctx.send(f"✅ Demote registrada en <#{DEMOTE_CHANNEL}>")
         else:
             await ctx.send(embed=error_embed("❌ Error", "Canal de degradaciones no encontrado"))
         
         # Registrar en logs
-        await send_rank_log("⬇️ Degradación", member, ctx.author, old_role, new_role, reason)
+        await send_rank_log("⬇️ Demote", member, ctx.author, old_role, new_role, reason)
         
     except discord.Forbidden:
         await ctx.send(embed=error_embed("❌ Error", "No tengo permisos para gestionar estos roles"))
