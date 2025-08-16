@@ -16,7 +16,13 @@ sanciones_data = {}
 intents = discord.Intents.default()
 intents.members = True
 intents.message_content = True
-bot = commands.Bot(command_prefix="god ", intents=intents)
+
+# SOLUCIÓN: Desactivar el comando help integrado
+bot = commands.Bot(
+    command_prefix="god ",
+    intents=intents,
+    help_command=None  # Esta línea soluciona el error
+)
 
 # ========= SISTEMA DE REGISTRO DE SANCIONES (EN MEMORIA) =========
 def guardar_sancion(usuario_id, tipo, razon, moderador_id, duracion=None):
