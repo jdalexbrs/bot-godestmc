@@ -9,7 +9,7 @@ TOKEN = os.environ["TOKEN"]
 # === CONFIGURACIÓN PERSONALIZABLE ===
 GUILD_ID = 1401779980945592400          # ID de tu servidor
 LOG_CHANNEL_ID = 1405694108302970910    # ID del canal de logs
-WARN_ROLE_ID = 1401779980991725626      # ID del rol de advertencia (cambiar si es necesario)
+WARN_ROLE_ID = 1401779980991725626      # ID del rol de advertencia
 WARN_ACTION_CHANNEL = 1401779987606016073  # Canal para acciones con 3 warns
 PROMOTE_CHANNEL = 1402294587967410338   # Canal para promociones
 DEMOTE_CHANNEL = 1402294931145625621    # Canal para degradaciones
@@ -26,28 +26,28 @@ bot = commands.Bot(
     help_command=None
 )
 
-# === SISTEMA PERSISTENTE DE SANCIONES ===
-SANCIONES_FILE = "sanciones.json"
+# === SISTEMA PERSISTENTE DE REGISTRO ===
+REGISTRO_FILE = "registro.json"
 
-def cargar_sanciones():
+def cargar_registro():
     try:
-        with open(SANCIONES_FILE, 'r') as f:
+        with open(REGISTRO_FILE, 'r') as f:
             return json.load(f)
     except (FileNotFoundError, json.JSONDecodeError):
         return {}
 
-def guardar_sanciones(data):
-    with open(SANCIONES_FILE, 'w') as f:
+def guardar_registro(data):
+    with open(REGISTRO_FILE, 'w') as f:
         json.dump(data, f, indent=2)
 
-def guardar_sancion(usuario_id, tipo, razon, moderador_id, duracion=None):
-    sanciones = cargar_sanciones()
+def registrar_accion(usuario_id, tipo, razon, moderador_id, duracion=None):
+    registro = cargar_registro()
     usuario_id = str(usuario_id)
     
-    if usuario_id not in sanciones:
-        sanciones[usuario_id] = []
+    if usuario_id not in registro:
+        registro[usuario_id] = []
     
-    sancion = {
+    accion = {
         "tipo": tipo,
         "razon": razon,
         "moderador": str(moderador_id),
@@ -55,17 +55,17 @@ def guardar_sancion(usuario_id, tipo, razon, moderador_id, duracion=None):
         "duracion": duracion
     }
     
-    sanciones[usuario_id].append(sancion)
-    guardar_sanciones(sanciones)
-    return sancion
+    registro[usuario_id].append(accion)
+    guardar_registro(registro)
+    return accion
 
-def obtener_sanciones_usuario(usuario_id):
-    sanciones = cargar_sanciones()
+def obtener_acciones_usuario(usuario_id):
+    registro = cargar_registro()
     usuario_id = str(usuario_id)
-    return sanciones.get(usuario_id, [])
+    return registro.get(usuario_id, [])
 
 def obtener_warns_usuario(usuario_id):
-    todas = obtener_sanciones_usuario(usuario_id)
+    todas = obtener_acciones_usuario(usuario_id)
     return [s for s in todas if s["tipo"] == "warn"]
 
 # === CLASE PARA LOS BOTONES DE DECISIÓN ===
@@ -91,7 +91,7 @@ class WarnDecisionView(discord.ui.View):
                 # Cambiar a mute de 1 día como sanción por defecto
                 until = discord.utils.utcnow() + timedelta(days=1)
                 await member.timeout(until, reason="Acumulación de 3 warns")
-                guardar_sancion(self.user_id, "mute", "Acumulación de 3 warns", interaction.user.id, "1d")
+                registrar_accion(self.user_id, "mute", "Acumulación de 3 warns", interaction.user.id, "1d")
                 
                 embed = discord.Embed(
                     title="🚨 Sanción Aplicada",
@@ -196,7 +196,7 @@ async def warn(ctx, user_id: str = None, *, reason="No se especificó razón"):
             
         # Aplicar warn
         await member.add_roles(warn_role, reason=reason)
-        guardar_sancion(user_id, "warn", reason, ctx.author.id)
+        registrar_accion(user_id, "warn", reason, ctx.author.id)
         
         # Notificar al usuario
         notified = await notify_user(member, "advertencia", reason, None, ctx.author)
@@ -298,7 +298,9 @@ async def sanciones(ctx, usuario_id: str = None):
         await ctx.send(embed=error_embed("❌ Error", "El ID de usuario debe ser numérico."))
         return
 
-    sanciones = obtener_sanciones_usuario(usuario_id)
+    acciones = obtener_acciones_usuario(usuario_id)
+    # Filtrar solo sanciones (excluyendo promociones y degradaciones)
+    sanciones = [a for a in acciones if a["tipo"] in ["warn", "mute", "ban", "kick", "unmute", "unban"]]
     
     if not sanciones:
         embed = discord.Embed(
@@ -315,8 +317,6 @@ async def sanciones(ctx, usuario_id: str = None):
         tipo = s["tipo"]
         if tipo in contadores:
             contadores[tipo] += 1
-        else:
-            contadores[tipo] = 1
     
     embed = discord.Embed(
         title=f"📜 Historial de sanciones de <@{usuario_id}>",
@@ -390,6 +390,9 @@ async def promote(ctx, member: discord.Member = None, old_role: discord.Role = N
         await member.remove_roles(old_role)
         await member.add_roles(new_role)
         
+        # Registrar acción
+        registrar_accion(member.id, "promote", reason, ctx.author.id)
+        
         # Crear embed
         embed = discord.Embed(
             title="🎉 Promote",
@@ -406,12 +409,9 @@ async def promote(ctx, member: discord.Member = None, old_role: discord.Role = N
         channel = bot.get_channel(PROMOTE_CHANNEL)
         if channel:
             await channel.send(embed=embed)
-            await ctx.send(f"✅ Promote registrada en <#{PROMOTE_CHANNEL}>")
+            await ctx.send(f"✅ Promote registrado en <#{PROMOTE_CHANNEL}>")
         else:
             await ctx.send(embed=error_embed("❌ Error", "Canal de promociones no encontrado"))
-        
-        # Registrar en logs
-        await send_rank_log("⬆️ Promote", member, ctx.author, old_role, new_role, reason)
         
     except discord.Forbidden:
         await ctx.send(embed=error_embed("❌ Error", "No tengo permisos para gestionar estos roles"))
@@ -444,6 +444,9 @@ async def demote(ctx, member: discord.Member = None, old_role: discord.Role = No
         await member.remove_roles(old_role)
         await member.add_roles(new_role)
         
+        # Registrar acción
+        registrar_accion(member.id, "demote", reason, ctx.author.id)
+        
         # Crear embed
         embed = discord.Embed(
             title="🔻 Demote",
@@ -460,33 +463,101 @@ async def demote(ctx, member: discord.Member = None, old_role: discord.Role = No
         channel = bot.get_channel(DEMOTE_CHANNEL)
         if channel:
             await channel.send(embed=embed)
-            await ctx.send(f"✅ Demote registrada en <#{DEMOTE_CHANNEL}>")
+            await ctx.send(f"✅ Demote registrado en <#{DEMOTE_CHANNEL}>")
         else:
             await ctx.send(embed=error_embed("❌ Error", "Canal de degradaciones no encontrado"))
-        
-        # Registrar en logs
-        await send_rank_log("⬇️ Demote", member, ctx.author, old_role, new_role, reason)
         
     except discord.Forbidden:
         await ctx.send(embed=error_embed("❌ Error", "No tengo permisos para gestionar estos roles"))
 
-# Función para registrar cambios de rango en el log
-async def send_rank_log(action, member, moderator, old_role, new_role, reason):
-    embed = discord.Embed(
-        title=f"{action}",
-        color=discord.Color.blue()
-    )
-    embed.set_thumbnail(url=member.display_avatar.url)
-    embed.add_field(name="👤 Usuario", value=f"{member} ({member.id})", inline=False)
-    embed.add_field(name="🛡 Moderador", value=f"{moderator} ({moderator.id})", inline=False)
-    embed.add_field(name="🔽 Rango Anterior", value=old_role.mention, inline=True)
-    embed.add_field(name="🔼 Nuevo Rango", value=new_role.mention, inline=True)
-    embed.add_field(name="📄 Razón", value=reason, inline=False)
-    embed.set_footer(text="Sistema de Rangos")
+# === NUEVO COMANDO: HISTORIAL ===
+@bot.command()
+@commands.has_permissions(manage_roles=True)
+async def historial(ctx, usuario_id: str = None):
+    """Muestra todo el historial de acciones de un usuario (sanciones, promociones, degradaciones)"""
+    if not usuario_id:
+        embed = error_embed(
+            "❌ Uso incorrecto",
+            "Formato correcto:\n`god historial <id_usuario>`\nEjemplo: `god historial 123456789012345678`"
+        )
+        await ctx.send(embed=embed)
+        return
+
+    try:
+        usuario_id = int(usuario_id)
+    except ValueError:
+        await ctx.send(embed=error_embed("❌ Error", "El ID de usuario debe ser numérico."))
+        return
+
+    acciones = obtener_acciones_usuario(usuario_id)
     
-    channel = bot.get_channel(LOG_CHANNEL_ID)
-    if channel:
-        await channel.send(embed=embed)
+    if not acciones:
+        embed = discord.Embed(
+            title=f"📜 Historial completo de <@{usuario_id}>",
+            description="Este usuario no tiene acciones registradas.",
+            color=discord.Color.purple()
+        )
+        await ctx.send(embed=embed)
+        return
+
+    # Contadores por tipo de acción
+    contadores = {
+        "warn": 0, "mute": 0, "ban": 0, "kick": 0, "unmute": 0, "unban": 0,
+        "promote": 0, "demote": 0
+    }
+    
+    for a in acciones:
+        tipo = a["tipo"]
+        if tipo in contadores:
+            contadores[tipo] += 1
+        else:
+            contadores[tipo] = 1
+    
+    embed = discord.Embed(
+        title=f"📜 Historial completo de <@{usuario_id}>",
+        description=(
+            f"Total: {len(acciones)} acciones registradas\n"
+            f"⚠️ Warns: {contadores['warn']} | 🔇 Mutes: {contadores['mute']}\n"
+            f"👢 Kicks: {contadores['kick']} | 🚫 Bans: {contadores['ban']}\n"
+            f"🎉 Promotes: {contadores['promote']} | 🔻 Demotes: {contadores['demote']}"
+        ),
+        color=discord.Color.purple()
+    )
+    
+    # Ordenar acciones por fecha (más recientes primero)
+    acciones_ordenadas = sorted(acciones, key=lambda x: x["fecha"], reverse=True)
+    
+    for accion in acciones_ordenadas[:15]:  # Mostrar máximo 15 acciones
+        tipo = accion["tipo"]
+        fecha = datetime.fromisoformat(accion["fecha"]).strftime("%d/%m/%Y %H:%M")
+        moderador = f"<@{accion['moderador']}>"
+        
+        # Emojis según tipo de acción
+        emoji = {
+            "warn": "⚠️",
+            "mute": "🔇",
+            "ban": "🚫",
+            "kick": "👢",
+            "unmute": "🔊",
+            "unban": "♻️",
+            "promote": "⬆️",
+            "demote": "⬇️"
+        }.get(tipo, "📝")
+        
+        titulo = f"{emoji} {tipo.capitalize()} - {fecha}"
+        valor = f"**Razón:** {accion['razon']}\n**Moderador:** {moderador}"
+        
+        if accion.get("duracion"):
+            valor += f"\n**Duración:** {accion['duracion']}"
+            
+        embed.add_field(name=titulo, value=valor, inline=False)
+    
+    if len(acciones) > 15:
+        embed.set_footer(text=f"Mostrando 15 de {len(acciones)} acciones | Más recientes primero")
+    else:
+        embed.set_footer(text=f"Total: {len(acciones)} acciones")
+    
+    await ctx.send(embed=embed)
 
 # === COMANDO HELP ===
 @bot.command()
@@ -527,7 +598,8 @@ async def help(ctx):
         name="🔧 **Comandos de Utilidad**",
         value=(
             "`god help` - Muestra este mensaje de ayuda\n"
-            "`god ping` - Comprueba la latencia del bot"
+            "`god ping` - Comprueba la latencia del bot\n"
+            "`god historial <id>` - Muestra historial completo de acciones"
         ),
         inline=False
     )
@@ -538,7 +610,8 @@ async def help(ctx):
         value=(
             "`god ban 123456789012345678 1h Spam`\n"
             "`god promote @Usuario @Novato @Experto Por buen desempeño`\n"
-            "`god mute 123456789012345678 30m Lenguaje inapropiado`"
+            "`god mute 123456789012345678 30m Lenguaje inapropiado`\n"
+            "`god historial 123456789012345678`"
         ),
         inline=False
     )
@@ -599,7 +672,7 @@ async def ban(ctx, user_id: str = None, tiempo: str = None, *, reason="No se esp
         notified = await notify_user(user, action, reason, duration, ctx.author)
         
         await guild.ban(user, reason=reason)
-        guardar_sancion(user_id, "ban", reason, ctx.author.id, duracion=tiempo)
+        registrar_accion(user_id, "ban", reason, ctx.author.id, duracion=tiempo)
         await send_log("🚫 Ban", user, ctx.author, reason, discord.Color.red(), tiempo)
         await ctx.send(f"✅ Usuario {user} baneado.")
         
@@ -609,7 +682,7 @@ async def ban(ctx, user_id: str = None, tiempo: str = None, *, reason="No se esp
                 await asyncio.sleep(seconds)
                 try:
                     await guild.unban(user)
-                    guardar_sancion(user_id, "unban", "Fin de sanción automático", bot.user.id)
+                    registrar_accion(user_id, "unban", "Fin de sanción automático", bot.user.id)
                     await send_log("♻️ Unban automático", user, ctx.author, "Fin de sanción", discord.Color.green())
                 except discord.Forbidden:
                     await ctx.send("❌ Error: No tengo permisos para desbanear")
@@ -644,7 +717,7 @@ async def kick(ctx, user_id: str = None, *, reason="No se especificó razón"):
             notified = await notify_user(member, "expulsión", reason, None, ctx.author)
             
             await member.kick(reason=reason)
-            guardar_sancion(user_id, "kick", reason, ctx.author.id)
+            registrar_accion(user_id, "kick", reason, ctx.author.id)
             await send_log("👢 Kick", member, ctx.author, reason, discord.Color.orange())
             await ctx.send(f"✅ Usuario {member} expulsado.")
         else:
@@ -683,7 +756,7 @@ async def mute(ctx, user_id: str = None, tiempo: str = None, *, reason="No se es
             
         until = discord.utils.utcnow() + timedelta(seconds=seconds)
         await member.timeout(until, reason=reason)
-        guardar_sancion(user_id, "mute", reason, ctx.author.id, duracion=tiempo)
+        registrar_accion(user_id, "mute", reason, ctx.author.id, duracion=tiempo)
         
         # Notificar al usuario después de mutear
         notified = await notify_user(member, "muteo", reason, tiempo, ctx.author)
@@ -723,7 +796,7 @@ async def unmute(ctx, user_id: str = None, *, reason="No se especificó razón")
             return
             
         await member.timeout(None, reason=reason)
-        guardar_sancion(user_id, "unmute", reason, ctx.author.id)
+        registrar_accion(user_id, "unmute", reason, ctx.author.id)
         await send_log("🔊 Unmute", member, ctx.author, reason, discord.Color.green())
         await ctx.send(f"✅ Usuario {member} desmuteado.")
         
