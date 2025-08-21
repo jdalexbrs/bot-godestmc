@@ -568,21 +568,21 @@ async def información(ctx):
     DESCRIPCION = "¡Bienvenido a nuestra comunidad!"
     COLOR = discord.Color.blue()
     SERVER_ICON = ctx.guild.icon.url if ctx.guild.icon else None  # Foto del servidor
-CAMPOS = [
-    {
-        "nombre": "🎮 IP del Servidor",
-        "valor": (
-            "**Java (1.8 - 1.21.x):**\n"
-            "IP: `java.tuservidor.com`\n\n"
-            "**Bedrock (1.21.70 - 1.21.101):**\n"
-            "IP: `bedrock.tuservidor.com`\n"
-            "Puerto: `25674`"
-        ),
-        "inline": False
-    },
-    {"nombre": "🛒 Tienda", "valor": "`PROXIMAMENTE`", "inline": True},
-    {"nombre": "📜 Reglas", "valor": "[Ver reglas del servidor](https://discord.com/channels/1401779980945592400/1402405577027752085)", "inline": False},
-]
+    CAMPOS = [
+        {
+            "nombre": "🎮 IP del Servidor",
+            "valor": (
+                "**Java (1.8 - 1.21.x):**\n"
+                "IP: `java.tuservidor.com`\n\n"
+                "**Bedrock (1.21.70 - 1.21.101):**\n"
+                "IP: `bedrock.tuservidor.com`\n"
+                "Puerto: `25674`"
+            ),
+            "inline": False
+        },
+        {"nombre": "🛒 Tienda", "valor": "`PROXIMAMENTE`", "inline": True},
+        {"nombre": "📜 Reglas", "valor": "[Ver reglas del servidor](https://discord.com/channels/1401779980945592400/1402405577027752085)", "inline": False},
+    ]
 
 
     # ========================================================
