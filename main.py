@@ -565,15 +565,17 @@ async def información(ctx):
     """Muestra la información importante del servidor"""
     # === CONFIGURACIÓN PERSONALIZABLE (Edita estos valores) ===
     TITULO = "🌍 Información del Servidor"
-    DESCRIPCION = "¡Bienvenido a nuestra comunidad! Aquí tienes los enlaces más importantes:"
+    DESCRIPCION = "¡Bienvenido a nuestra comunidad!"
     COLOR = discord.Color.blue()
     SERVER_ICON = ctx.guild.icon.url if ctx.guild.icon else None  # Foto del servidor
     CAMPOS = [
-        {"nombre": "🎮 IP del Servidor", "valor": "`PROXIMAMENTE`", "inline": True},
+        {"nombre": "🎮 IP Java", "valor": "`play.godestmc.xyz:25674`", "inline": True},
+        {"nombre": "🎮 IP Java", "valor": "`godestmc.xyz`", "inline": True},
+        {"nombre": "📱 IP Bedrock", "valor": "`bedrock.godestmc.xyz`", "inline": True},
         {"nombre": "🛒 Tienda", "valor": "`PROXIMAMENTE`", "inline": True},
-        {"nombre": "📱 Discord", "valor": "[Únete a nuestro Discord](https://discord.gg/YzaWeJZFrp)", "inline": True},
         {"nombre": "📜 Reglas", "valor": "[Ver reglas del servidor](https://discord.com/channels/1401779980945592400/1402405577027752085)", "inline": False},
     ]
+
     # ========================================================
 
     embed = discord.Embed(
