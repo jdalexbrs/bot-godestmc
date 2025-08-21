@@ -570,12 +570,13 @@ async def información(ctx):
     SERVER_ICON = ctx.guild.icon.url if ctx.guild.icon else None  # Foto del servidor
     CAMPOS = [
         {
-            "nombre": "IP del Servidor",
+            "nombre": "🎮 IP del Servidor",
             "valor": (
                 "**⌨️ Java (1.8 - 1.21.x):**\n"
-                "IP: `java.tuservidor.com`\n\n"
+                "IP: `play.godestmc.xyz:25674`\n\n"
+                "IP: `godestmc.xyz`\n\n"
                 "**📱 Bedrock (1.21.70 - 1.21.101):**\n"
-                "IP: `bedrock.tuservidor.com`\n"
+                "IP: `bedrock.godestmc.xyz`\n"
                 "Puerto: `25674`"
             ),
             "inline": False
