@@ -576,7 +576,7 @@ async def información(ctx):
                 "IP: `mc.godestmc.xyz`\n\n"
                 "**📱 Bedrock (1.21.70 - 1.21.101):**\n"
                 "IP: `bedrock.godestmc.xyz`\n"
-                "Puerto: `25674`"
+                "Puerto: `25565`"
             ),
             "inline": False
         },
