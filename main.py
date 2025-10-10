@@ -572,9 +572,9 @@ async def información(ctx):
         {
             "nombre": "🎮 IP del Servidor",
             "valor": (
-                "**⌨️ Java (1.8 - 1.21.x):**\n"
+                "**⌨️ Java (1.8 - 1.21.10):**\n"
                 "IP: `mc.godestmc.xyz`\n\n"
-                "**📱 Bedrock (1.21.70 - 1.21.101):**\n"
+                "**📱 Bedrock (1.21.90 - 1.21.111):**\n"
                 "IP: `bedrock.godestmc.xyz`\n"
                 "Puerto: `19132`"
             ),
