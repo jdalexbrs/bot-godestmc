@@ -170,7 +170,7 @@ async def on_ready():
 # =========================================================
 
 @bot.command()
-@commands.has_permissions(manage_roles=True)
+@commands.has_permissions(manage_messages=True)
 async def warn(ctx, member: discord.Member, *, reason="Sin razón"):
     await member.add_roles(ctx.guild.get_role(WARN_ROLE_ID))
     registrar_accion(member.id, "warn", reason, ctx.author.id)
@@ -189,6 +189,7 @@ async def warn(ctx, member: discord.Member, *, reason="Sin razón"):
             )
 
     await ctx.send(f"{member.mention} advertido.")
+
 
 @bot.command()
 @commands.has_permissions(manage_messages=True)
