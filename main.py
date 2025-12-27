@@ -168,11 +168,23 @@ async def on_ready():
 # =========================================================
 # COMANDOS
 # =========================================================
-
 @bot.command()
-@commands.has_permissions(manage_messages=True)
+@commands.has_permissions(moderate_members=True)
 async def warn(ctx, member: discord.Member, *, reason="Sin razón"):
-    await member.add_roles(ctx.guild.get_role(WARN_ROLE_ID))
+    role = ctx.guild.get_role(WARN_ROLE_ID)
+
+    if role is None:
+        await ctx.send(
+            embed=discord.Embed(
+                title="Error de configuración",
+                description="El rol de warn no existe o el ID es incorrecto.",
+                color=discord.Color.red()
+            )
+        )
+        return
+
+    await member.add_roles(role, reason=reason)
+
     registrar_accion(member.id, "warn", reason, ctx.author.id)
     await send_log("⚠️ Warn", member, ctx.author, reason, discord.Color.yellow())
 
@@ -189,6 +201,7 @@ async def warn(ctx, member: discord.Member, *, reason="Sin razón"):
             )
 
     await ctx.send(f"{member.mention} advertido.")
+
 
 
 @bot.command()
