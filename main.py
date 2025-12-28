@@ -32,14 +32,17 @@ intents = discord.Intents.default()
 intents.members = True
 intents.message_content = True
 
-bot = commands.Bot(command_prefix="god ", intents=intents)
+bot = commands.Bot(
+    command_prefix="god ",
+    intents=intents,
+    help_command=None  # Deshabilitar help por defecto
+)
 
 # =========================================================
 # CONEXIÓN A LA BASE DE DATOS
 # =========================================================
 
 try:
-    # Usando mysql-connector-python (más estable)
     engine = create_engine(
         f"mysql+mysqlconnector://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}",
         pool_pre_ping=True,
@@ -48,7 +51,6 @@ try:
     print("✅ Conexión a la base de datos configurada")
 except Exception as e:
     print(f"❌ Error al conectar a la base de datos: {e}")
-    # Fallback a SQLite si MySQL falla
     engine = create_engine('sqlite:///bot.db')
     print("✅ Usando SQLite como base de datos alternativa")
 
@@ -59,7 +61,6 @@ except Exception as e:
 def init_db():
     """Inicializa las tablas en la base de datos"""
     with engine.begin() as conn:
-        # Tabla de acciones
         conn.execute(text("""
             CREATE TABLE IF NOT EXISTS actions (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -74,7 +75,6 @@ def init_db():
             )
         """))
         
-        # Tabla de warns acumulados
         conn.execute(text("""
             CREATE TABLE IF NOT EXISTS user_warns (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -91,7 +91,6 @@ def registrar_accion(user_id, guild_id, action_type, reason, moderator_id, durat
     """Registra una acción en la base de datos"""
     try:
         with engine.begin() as conn:
-            # Insertar la acción
             conn.execute(
                 text("""
                     INSERT INTO actions (user_id, guild_id, action_type, reason, moderator_id, duration)
@@ -107,7 +106,6 @@ def registrar_accion(user_id, guild_id, action_type, reason, moderator_id, durat
                 }
             )
             
-            # Si es un warn, actualizar el contador
             if action_type == 'warn':
                 conn.execute(
                     text("""
@@ -222,10 +220,8 @@ async def on_ready():
     print(f"🆔 ID: {bot.user.id}")
     print(f"👥 Conectado a {len(bot.guilds)} servidores")
     
-    # Inicializar base de datos
     init_db()
     
-    # Establecer estado
     await bot.change_presence(
         activity=discord.Activity(
             type=discord.ActivityType.watching,
@@ -249,23 +245,19 @@ async def warn(ctx, member: discord.Member, *, reason="No se especificó razón"
         await ctx.send(embed=create_embed("❌ Error", "No puedes advertir a un bot.", discord.Color.red()))
         return
     
-    # Registrar el warn
     registrar_accion(
         member.id, ctx.guild.id, "warn", 
         reason, ctx.author.id
     )
     
-    # Obtener total de warns
     warns = contar_warns(member.id, ctx.guild.id)
     
-    # Enviar log
     await send_log(
         "⚠️ Warn Aplicado",
         member, ctx.author, reason,
         discord.Color.orange()
     )
     
-    # Responder en el canal
     embed = create_embed(
         "⚠️ Warn Registrado",
         f"{member.mention} ha recibido una advertencia.\n\n"
@@ -275,7 +267,6 @@ async def warn(ctx, member: discord.Member, *, reason="No se especificó razón"
     )
     await ctx.send(embed=embed)
     
-    # Notificar si alcanza 3 warns
     if warns >= 3:
         action_channel = bot.get_channel(WARN_ACTION_CHANNEL) if WARN_ACTION_CHANNEL else ctx.channel
         if action_channel:
@@ -301,11 +292,9 @@ async def unwarn(ctx, member: discord.Member, cantidad: int = 1):
     if cantidad > warns_actuales:
         cantidad = warns_actuales
     
-    # Simular la eliminación (en una implementación real, marcaríamos los warns como eliminados)
     reset_warns(member.id, ctx.guild.id)
     nuevo_total = warns_actuales - cantidad
     
-    # Si quedan warns, los reinsertamos
     if nuevo_total > 0:
         registrar_accion(
             member.id, ctx.guild.id, "unwarn", 
@@ -462,7 +451,6 @@ async def checkwarns(ctx, member: discord.Member = None):
     embed.add_field(name="Warns Actuales", value=f"**{warns}/3**", inline=True)
     
     if warns > 0:
-        # Obtener últimos warns
         with engine.begin() as conn:
             ultimos = conn.execute(
                 text("""
@@ -482,8 +470,12 @@ async def checkwarns(ctx, member: discord.Member = None):
     
     await ctx.send(embed=embed)
 
-@bot.command(name="help")
-async def help_command(ctx):
+# =========================================================
+# COMANDO DE AYUDA PERSONALIZADO
+# =========================================================
+
+@bot.command(name="ayuda")
+async def ayuda(ctx):
     """Muestra la ayuda del bot"""
     embed = discord.Embed(
         title="🤖 Comandos de Moderación",
@@ -532,6 +524,14 @@ async def on_command_error(ctx, error):
             f"Falta un argumento requerido.\nUso correcto: `{ctx.prefix}{ctx.command.name} {ctx.command.signature}`",
             discord.Color.red()
         ))
+    elif isinstance(error, commands.CommandNotFound):
+        # Sugerir usar el comando ayuda
+        embed = create_embed(
+            "❌ Comando no encontrado",
+            f"El comando `{ctx.invoked_with}` no existe.\n\nUsa `{ctx.prefix}ayuda` para ver los comandos disponibles.",
+            discord.Color.red()
+        )
+        await ctx.send(embed=embed)
     else:
         print(f"Error no manejado: {error}")
         await ctx.send(embed=create_embed(
@@ -546,4 +546,9 @@ async def on_command_error(ctx, error):
 
 if __name__ == "__main__":
     print("🚀 Iniciando bot...")
-    bot.run(TOKEN)
+    try:
+        bot.run(TOKEN)
+    except discord.LoginFailure:
+        print("❌ Error: Token inválido. Verifica tu token de Discord.")
+    except Exception as e:
+        print(f"❌ Error al iniciar el bot: {e}")
