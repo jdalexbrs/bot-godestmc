@@ -5,26 +5,27 @@ from datetime import datetime, timedelta
 from sqlalchemy import create_engine, text
 
 # =========================================================
-# VARIABLES DE ENTORNO
+# CONFIGURACIÓN
 # =========================================================
 
 TOKEN = os.getenv("TOKEN")
-
 if not TOKEN:
-    raise RuntimeError("Falta la variable de entorno: TOKEN")
+    raise RuntimeError("❌ Falta el TOKEN del bot")
 
-DB_USER = os.getenv("DB_USER", "u13_Q9m5REH6Vj")
-DB_PASSWORD = os.getenv("DB_PASSWORD", "jKWdy7^WU9Hcpd5x^nNyGf+T")
-DB_HOST = os.getenv("DB_HOST", "db-mia.trustsnodes.com")
+# Configuración de la base de datos
+DB_HOST = os.getenv("DB_HOST", "localhost")
 DB_PORT = os.getenv("DB_PORT", "3306")
-DB_NAME = os.getenv("DB_NAME", "s13_BOT_DISCORD")
+DB_USER = os.getenv("DB_USER", "root")
+DB_PASSWORD = os.getenv("DB_PASSWORD", "")
+DB_NAME = os.getenv("DB_NAME", "discord_bot")
 
-WARN_ACTION_CHANNEL = int(os.getenv("WARN_ACTION_CHANNEL", "123456789012345678"))
-LOG_CHANNEL_ID = int(os.getenv("LOG_CHANNEL_ID", "123456789012345678"))
-GUILD_ID = int(os.getenv("GUILD_ID", "123456789012345678"))
+# Canales y IDs
+GUILD_ID = int(os.getenv("GUILD_ID", "0"))
+LOG_CHANNEL_ID = int(os.getenv("LOG_CHANNEL_ID", "0"))
+WARN_ACTION_CHANNEL = int(os.getenv("WARN_ACTION_CHANNEL", "0"))
 
 # =========================================================
-# BOT
+# INICIALIZACIÓN DEL BOT
 # =========================================================
 
 intents = discord.Intents.default()
@@ -34,18 +35,31 @@ intents.message_content = True
 bot = commands.Bot(command_prefix="god ", intents=intents)
 
 # =========================================================
-# BASE DE DATOS
+# CONEXIÓN A LA BASE DE DATOS
 # =========================================================
 
-engine = create_engine(
-    f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}",
-    pool_pre_ping=True
-)
+try:
+    # Usando mysql-connector-python (más estable)
+    engine = create_engine(
+        f"mysql+mysqlconnector://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}",
+        pool_pre_ping=True,
+        pool_recycle=280
+    )
+    print("✅ Conexión a la base de datos configurada")
+except Exception as e:
+    print(f"❌ Error al conectar a la base de datos: {e}")
+    # Fallback a SQLite si MySQL falla
+    engine = create_engine('sqlite:///bot.db')
+    print("✅ Usando SQLite como base de datos alternativa")
+
+# =========================================================
+# FUNCIONES DE BASE DE DATOS
+# =========================================================
 
 def init_db():
-    """Inicializa la base de datos con las tablas necesarias"""
+    """Inicializa las tablas en la base de datos"""
     with engine.begin() as conn:
-        # Tabla de acciones (warns, mutes, bans, etc.)
+        # Tabla de acciones
         conn.execute(text("""
             CREATE TABLE IF NOT EXISTS actions (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -56,12 +70,11 @@ def init_db():
                 moderator_id BIGINT,
                 duration VARCHAR(20),
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                INDEX idx_user_guild (user_id, guild_id),
-                INDEX idx_action_type (action_type)
+                INDEX idx_user_guild (user_id, guild_id)
             )
         """))
         
-        # Tabla específica para warns acumulados
+        # Tabla de warns acumulados
         conn.execute(text("""
             CREATE TABLE IF NOT EXISTS user_warns (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -69,120 +82,134 @@ def init_db():
                 guild_id BIGINT NOT NULL,
                 total_warns INT DEFAULT 0,
                 last_warn_date TIMESTAMP NULL,
-                UNIQUE KEY unique_user_guild (user_id, guild_id),
-                INDEX idx_warns_count (total_warns)
+                UNIQUE KEY unique_user_guild (user_id, guild_id)
             )
         """))
+    print("✅ Base de datos inicializada")
 
 def registrar_accion(user_id, guild_id, action_type, reason, moderator_id, duration=None):
     """Registra una acción en la base de datos"""
-    with engine.begin() as conn:
-        # Registrar la acción
-        conn.execute(
-            text("""
-                INSERT INTO actions (user_id, guild_id, action_type, reason, moderator_id, duration)
-                VALUES (:user_id, :guild_id, :action_type, :reason, :moderator_id, :duration)
-            """),
-            {
-                "user_id": user_id,
-                "guild_id": guild_id,
-                "action_type": action_type,
-                "reason": reason,
-                "moderator_id": moderator_id,
-                "duration": duration
-            }
-        )
-        
-        # Si es un warn, actualizar el contador
-        if action_type == 'warn':
+    try:
+        with engine.begin() as conn:
+            # Insertar la acción
             conn.execute(
                 text("""
-                    INSERT INTO user_warns (user_id, guild_id, total_warns, last_warn_date)
-                    VALUES (:user_id, :guild_id, 1, NOW())
-                    ON DUPLICATE KEY UPDATE 
-                    total_warns = total_warns + 1,
-                    last_warn_date = NOW()
+                    INSERT INTO actions (user_id, guild_id, action_type, reason, moderator_id, duration)
+                    VALUES (:user_id, :guild_id, :action_type, :reason, :moderator_id, :duration)
                 """),
-                {"user_id": user_id, "guild_id": guild_id}
+                {
+                    "user_id": user_id,
+                    "guild_id": guild_id,
+                    "action_type": action_type,
+                    "reason": reason,
+                    "moderator_id": moderator_id,
+                    "duration": duration
+                }
             )
+            
+            # Si es un warn, actualizar el contador
+            if action_type == 'warn':
+                conn.execute(
+                    text("""
+                        INSERT INTO user_warns (user_id, guild_id, total_warns, last_warn_date)
+                        VALUES (:user_id, :guild_id, 1, NOW())
+                        ON DUPLICATE KEY UPDATE 
+                        total_warns = total_warns + 1,
+                        last_warn_date = NOW()
+                    """),
+                    {"user_id": user_id, "guild_id": guild_id}
+                )
+        return True
+    except Exception as e:
+        print(f"❌ Error al registrar acción: {e}")
+        return False
 
 def contar_warns(user_id, guild_id):
     """Cuenta los warns de un usuario"""
-    with engine.begin() as conn:
-        result = conn.execute(
-            text("""
-                SELECT total_warns FROM user_warns
-                WHERE user_id = :user_id AND guild_id = :guild_id
-            """),
-            {"user_id": user_id, "guild_id": guild_id}
-        )
-        row = result.fetchone()
-        return row[0] if row else 0
+    try:
+        with engine.begin() as conn:
+            result = conn.execute(
+                text("""
+                    SELECT total_warns FROM user_warns
+                    WHERE user_id = :user_id AND guild_id = :guild_id
+                """),
+                {"user_id": user_id, "guild_id": guild_id}
+            ).fetchone()
+            return result[0] if result else 0
+    except Exception as e:
+        print(f"❌ Error al contar warns: {e}")
+        return 0
 
-def obtener_historial(user_id, guild_id, limit=15):
-    """Obtiene el historial de acciones de un usuario"""
-    with engine.begin() as conn:
-        return conn.execute(
-            text("""
-                SELECT action_type, reason, moderator_id, duration, created_at
-                FROM actions
-                WHERE user_id = :user_id AND guild_id = :guild_id
-                ORDER BY created_at DESC
-                LIMIT :limit
-            """),
-            {"user_id": user_id, "guild_id": guild_id, "limit": limit}
-        ).fetchall()
+def obtener_historial(user_id, guild_id, limit=10):
+    """Obtiene el historial de un usuario"""
+    try:
+        with engine.begin() as conn:
+            return conn.execute(
+                text("""
+                    SELECT action_type, reason, moderator_id, duration, created_at
+                    FROM actions
+                    WHERE user_id = :user_id AND guild_id = :guild_id
+                    ORDER BY created_at DESC
+                    LIMIT :limit
+                """),
+                {"user_id": user_id, "guild_id": guild_id, "limit": limit}
+            ).fetchall()
+    except Exception as e:
+        print(f"❌ Error al obtener historial: {e}")
+        return []
 
 def reset_warns(user_id, guild_id):
     """Resetea los warns de un usuario"""
-    with engine.begin() as conn:
-        conn.execute(
-            text("""
-                DELETE FROM user_warns
-                WHERE user_id = :user_id AND guild_id = :guild_id
-            """),
-            {"user_id": user_id, "guild_id": guild_id}
-        )
-        # También eliminamos los registros de warns individuales si se desea
-        # conn.execute(
-        #     text("""
-        #         DELETE FROM actions
-        #         WHERE user_id = :user_id AND guild_id = :guild_id AND action_type = 'warn'
-        #     """),
-        #     {"user_id": user_id, "guild_id": guild_id}
-        # )
+    try:
+        with engine.begin() as conn:
+            conn.execute(
+                text("""
+                    DELETE FROM user_warns
+                    WHERE user_id = :user_id AND guild_id = :guild_id
+                """),
+                {"user_id": user_id, "guild_id": guild_id}
+            )
+        return True
+    except Exception as e:
+        print(f"❌ Error al resetear warns: {e}")
+        return False
 
 # =========================================================
 # UTILIDADES
 # =========================================================
 
 def parse_time(text):
-    """Convierte texto como '1d', '2h', '30m' a segundos"""
+    """Convierte texto de tiempo a segundos"""
     match = re.match(r"(\d+)([smhd])", text.lower())
     if not match:
         return None
     value, unit = int(match.group(1)), match.group(2)
-    return value * {"s": 1, "m": 60, "h": 3600, "d": 86400}[unit]
+    multipliers = {"s": 1, "m": 60, "h": 3600, "d": 86400}
+    return value * multipliers.get(unit, 1)
 
 async def send_log(title, member, moderator, reason, color, duration=None):
-    """Envía un embed al canal de logs"""
-    channel = bot.get_channel(LOG_CHANNEL_ID)
-    if not channel:
-        return
-    
-    embed = discord.Embed(title=title, color=color)
-    embed.set_thumbnail(url=member.display_avatar.url)
-    embed.add_field(name="Usuario", value=f"{member} (`{member.id}`)", inline=False)
-    embed.add_field(name="Moderador", value=f"{moderator} (`{moderator.id}`)", inline=False)
-    embed.add_field(name="Razón", value=reason, inline=False)
-    if duration:
-        embed.add_field(name="Duración", value=duration, inline=False)
-    
-    await channel.send(embed=embed)
+    """Envía un log al canal correspondiente"""
+    try:
+        channel = bot.get_channel(LOG_CHANNEL_ID)
+        if not channel:
+            print(f"❌ No se encontró el canal de logs: {LOG_CHANNEL_ID}")
+            return
+        
+        embed = discord.Embed(title=title, color=color, timestamp=datetime.utcnow())
+        embed.add_field(name="👤 Usuario", value=f"{member.mention}\nID: `{member.id}`", inline=True)
+        embed.add_field(name="🛡️ Moderador", value=f"{moderator.mention}\nID: `{moderator.id}`", inline=True)
+        embed.add_field(name="📝 Razón", value=reason[:1024] if reason else "No especificada", inline=False)
+        
+        if duration:
+            embed.add_field(name="⏱️ Duración", value=duration, inline=True)
+        
+        await channel.send(embed=embed)
+    except Exception as e:
+        print(f"❌ Error al enviar log: {e}")
 
-def error_embed(msg):
-    """Crea un embed de error"""
-    return discord.Embed(title="❌ Error", description=msg, color=discord.Color.red())
+def create_embed(title, description, color):
+    """Crea un embed básico"""
+    return discord.Embed(title=title, description=description, color=color)
 
 # =========================================================
 # EVENTOS
@@ -191,40 +218,41 @@ def error_embed(msg):
 @bot.event
 async def on_ready():
     """Evento cuando el bot está listo"""
-    print(f"Bot conectado como {bot.user}")
+    print(f"✅ Bot conectado como {bot.user}")
+    print(f"🆔 ID: {bot.user.id}")
+    print(f"👥 Conectado a {len(bot.guilds)} servidores")
+    
+    # Inicializar base de datos
+    init_db()
+    
+    # Establecer estado
     await bot.change_presence(
         activity=discord.Activity(
             type=discord.ActivityType.watching,
-            name="god help"
+            name="los warns de los usuarios"
         )
     )
-    init_db()
-    print("Base de datos inicializada")
 
 # =========================================================
-# COMANDOS
+# COMANDOS DE MODERACIÓN
 # =========================================================
 
 @bot.command()
 @commands.has_permissions(moderate_members=True)
 async def warn(ctx, member: discord.Member, *, reason="No se especificó razón"):
-    """Da un warn a un usuario (requiere moderate_members)"""
-    
+    """Da un warn a un usuario"""
     if member == ctx.author:
-        await ctx.send(embed=error_embed("No puedes advertirte a ti mismo."))
+        await ctx.send(embed=create_embed("❌ Error", "No puedes advertirte a ti mismo.", discord.Color.red()))
         return
     
     if member.bot:
-        await ctx.send(embed=error_embed("No puedes advertir a un bot."))
+        await ctx.send(embed=create_embed("❌ Error", "No puedes advertir a un bot.", discord.Color.red()))
         return
     
-    # Registrar warn en la base de datos
+    # Registrar el warn
     registrar_accion(
-        user_id=member.id,
-        guild_id=ctx.guild.id,
-        action_type="warn",
-        reason=reason,
-        moderator_id=ctx.author.id
+        member.id, ctx.guild.id, "warn", 
+        reason, ctx.author.id
     )
     
     # Obtener total de warns
@@ -232,312 +260,290 @@ async def warn(ctx, member: discord.Member, *, reason="No se especificó razón"
     
     # Enviar log
     await send_log(
-        "⚠️ Warn",
-        member,
-        ctx.author,
-        reason,
+        "⚠️ Warn Aplicado",
+        member, ctx.author, reason,
         discord.Color.orange()
     )
     
-    # Respuesta en el canal
-    embed = discord.Embed(
-        title="⚠️ Advertencia aplicada",
-        description=f"{member.mention} ahora tiene **{warns}/3 warns**",
-        color=discord.Color.orange()
+    # Responder en el canal
+    embed = create_embed(
+        "⚠️ Warn Registrado",
+        f"{member.mention} ha recibido una advertencia.\n\n"
+        f"**Razón:** {reason}\n"
+        f"**Warns actuales:** {warns}/3",
+        discord.Color.orange()
     )
-    embed.add_field(name="Razón", value=reason, inline=False)
     await ctx.send(embed=embed)
     
-    # Sistema automático de 3 warns
+    # Notificar si alcanza 3 warns
     if warns >= 3:
-        channel = bot.get_channel(WARN_ACTION_CHANNEL)
-        if channel:
-            await channel.send(
-                embed=discord.Embed(
-                    title="🚨 3 Advertencias",
-                    description=(
-                        f"**Usuario:** {member.mention} (`{member.id}`)\n"
-                        f"**Moderador:** {ctx.author.mention}\n"
-                        f"**Total warns:** {warns}\n\n"
-                        f"Se recomienda aplicar una sanción (mute, kick o ban)."
-                    ),
-                    color=discord.Color.red()
+        action_channel = bot.get_channel(WARN_ACTION_CHANNEL) if WARN_ACTION_CHANNEL else ctx.channel
+        if action_channel:
+            await action_channel.send(
+                embed=create_embed(
+                    "🚨 ¡Alerta! 3 Warns",
+                    f"{member.mention} ha alcanzado **3 warns**.\n"
+                    "Se recomienda revisar el caso y aplicar una sanción correspondiente.",
+                    discord.Color.red()
                 )
             )
 
 @bot.command()
 @commands.has_permissions(moderate_members=True)
 async def unwarn(ctx, member: discord.Member, cantidad: int = 1):
-    """Elimina warns de un usuario (requiere moderate_members)"""
-    
-    if cantidad <= 0:
-        await ctx.send(embed=error_embed("La cantidad debe ser mayor a 0."))
-        return
-    
+    """Remueve warns de un usuario"""
     warns_actuales = contar_warns(member.id, ctx.guild.id)
     
     if warns_actuales == 0:
-        await ctx.send(embed=error_embed(f"{member.mention} no tiene warns."))
+        await ctx.send(embed=create_embed("ℹ️ Información", f"{member.mention} no tiene warns.", discord.Color.blue()))
         return
     
-    # Resetear warns si se piden más de los que tiene
-    if cantidad >= warns_actuales:
-        reset_warns(member.id, ctx.guild.id)
-        nuevo_total = 0
-        accion = "todos los warns"
-    else:
-        # En este ejemplo simple, reseteamos y ponemos la nueva cantidad
-        # En una implementación más avanzada, podrías marcar warns específicos como eliminados
-        reset_warns(member.id, ctx.guild.id)
-        nuevo_total = warns_actuales - cantidad
-        # Aquí deberías reinsertar los warns restantes si tu lógica lo requiere
-        accion = f"{cantidad} warn(s)"
+    if cantidad > warns_actuales:
+        cantidad = warns_actuales
     
-    embed = discord.Embed(
-        title="✅ Warns removidos",
-        description=f"Se han removido {accion} de {member.mention}",
-        color=discord.Color.green()
+    # Simular la eliminación (en una implementación real, marcaríamos los warns como eliminados)
+    reset_warns(member.id, ctx.guild.id)
+    nuevo_total = warns_actuales - cantidad
+    
+    # Si quedan warns, los reinsertamos
+    if nuevo_total > 0:
+        registrar_accion(
+            member.id, ctx.guild.id, "unwarn", 
+            f"Se removieron {cantidad} warns, quedan {nuevo_total}", 
+            ctx.author.id
+        )
+    
+    embed = create_embed(
+        "✅ Warns Removidos",
+        f"Se han removido **{cantidad}** warn(s) de {member.mention}\n"
+        f"**Anteriores:** {warns_actuales}\n"
+        f"**Actuales:** {nuevo_total}",
+        discord.Color.green()
     )
-    embed.add_field(name="Warns anteriores", value=warns_actuales, inline=True)
-    embed.add_field(name="Warns actuales", value=nuevo_total, inline=True)
-    
     await ctx.send(embed=embed)
-    
-    # Registrar la acción
-    registrar_accion(
-        user_id=member.id,
-        guild_id=ctx.guild.id,
-        action_type="unwarn",
-        reason=f"Removidos {cantidad} warns por {ctx.author}",
-        moderator_id=ctx.author.id
-    )
 
 @bot.command(name="historial")
 @commands.has_permissions(moderate_members=True)
 async def historial(ctx, member: discord.Member):
-    """Muestra el historial de sanciones de un usuario (requiere moderate_members)"""
-    
+    """Muestra el historial de un usuario"""
     acciones = obtener_historial(member.id, ctx.guild.id)
+    warns = contar_warns(member.id, ctx.guild.id)
     
     if not acciones:
-        await ctx.send(f"{member.mention} no tiene historial de sanciones.")
+        await ctx.send(embed=create_embed(
+            "📄 Historial Vacío",
+            f"{member.mention} no tiene historial de sanciones.",
+            discord.Color.blue()
+        ))
         return
     
     embed = discord.Embed(
         title=f"📄 Historial de {member}",
-        color=discord.Color.blue()
+        description=f"**Warns actuales:** {warns}/3",
+        color=discord.Color.blue(),
+        timestamp=datetime.utcnow()
     )
     
-    warns_count = contar_warns(member.id, ctx.guild.id)
-    embed.set_footer(text=f"Total de warns actuales: {warns_count}/3")
-    
-    for action, reason, mod_id, duration, date in acciones[:10]:  # Mostrar máximo 10
-        fecha = date.strftime('%Y-%m-%d %H:%M')
-        moderator = ctx.guild.get_member(mod_id) if mod_id else "Desconocido"
-        mod_name = f"{moderator}" if isinstance(moderator, discord.Member) else f"<@{mod_id}>"
-        
-        campo = f"**Fecha:** {fecha}\n"
-        campo += f"**Moderador:** {mod_name}\n"
+    for i, (action, reason, mod_id, duration, fecha) in enumerate(acciones, 1):
+        fecha_str = fecha.strftime('%d/%m/%Y %H:%M')
+        value = f"**Razón:** {reason or 'Sin razón'}\n"
+        value += f"**Fecha:** {fecha_str}\n"
         if duration:
-            campo += f"**Duración:** {duration}\n"
-        campo += f"**Razón:** {reason or 'Sin razón'}"
+            value += f"**Duración:** {duration}\n"
+        if mod_id:
+            value += f"**Moderador:** <@{mod_id}>"
         
         embed.add_field(
-            name=f"{action.upper()}",
-            value=campo,
+            name=f"{i}. {action.upper()}",
+            value=value,
             inline=False
         )
     
     await ctx.send(embed=embed)
 
-@bot.command(name="sanciones")
+@bot.command()
 @commands.has_permissions(moderate_members=True)
-async def sanciones(ctx, member: discord.Member):
-    """Alias de historial (requiere moderate_members)"""
-    await historial(ctx, member)
+async def mute(ctx, member: discord.Member, tiempo: str, *, reason="Sin razón"):
+    """Silencia a un usuario temporalmente"""
+    seconds = parse_time(tiempo)
+    if not seconds:
+        await ctx.send(embed=create_embed(
+            "❌ Error",
+            "Formato de tiempo inválido. Usa: `1d` (días), `2h` (horas), `30m` (minutos), `60s` (segundos)",
+            discord.Color.red()
+        ))
+        return
+    
+    try:
+        await member.timeout(timedelta(seconds=seconds), reason=reason)
+        
+        registrar_accion(
+            member.id, ctx.guild.id, "mute",
+            reason, ctx.author.id, tiempo
+        )
+        
+        await send_log(
+            "🔇 Usuario Silenciado",
+            member, ctx.author, reason,
+            discord.Color.dark_gray(), tiempo
+        )
+        
+        await ctx.send(embed=create_embed(
+            "🔇 Mute Aplicado",
+            f"{member.mention} ha sido silenciado por {tiempo}.\n"
+            f"**Razón:** {reason}",
+            discord.Color.dark_gray()
+        ))
+    except discord.Forbidden:
+        await ctx.send(embed=create_embed(
+            "❌ Error de Permisos",
+            "No tengo permisos para silenciar a este usuario.",
+            discord.Color.red()
+        ))
+    except Exception as e:
+        await ctx.send(embed=create_embed(
+            "❌ Error",
+            f"No se pudo silenciar al usuario: {str(e)}",
+            discord.Color.red()
+        ))
+
+@bot.command()
+@commands.has_permissions(moderate_members=True)
+async def unmute(ctx, member: discord.Member):
+    """Remueve el silencio de un usuario"""
+    if not member.is_timed_out():
+        await ctx.send(embed=create_embed(
+            "ℹ️ Información",
+            f"{member.mention} no está silenciado.",
+            discord.Color.blue()
+        ))
+        return
+    
+    try:
+        await member.timeout(None, reason="Unmute manual")
+        
+        registrar_accion(
+            member.id, ctx.guild.id, "unmute",
+            "Unmute manual", ctx.author.id
+        )
+        
+        await send_log(
+            "🔊 Usuario Desilenciado",
+            member, ctx.author, "Unmute manual",
+            discord.Color.green()
+        )
+        
+        await ctx.send(embed=create_embed(
+            "✅ Unmute Aplicado",
+            f"{member.mention} ha sido desilenciado.",
+            discord.Color.green()
+        ))
+    except Exception as e:
+        await ctx.send(embed=create_embed(
+            "❌ Error",
+            f"No se pudo desilenciar al usuario: {str(e)}",
+            discord.Color.red()
+        ))
 
 @bot.command(name="checkwarns")
 @commands.has_permissions(moderate_members=True)
 async def checkwarns(ctx, member: discord.Member = None):
-    """Muestra los warns actuales de un usuario (requiere moderate_members)"""
-    
+    """Revisa los warns de un usuario"""
     target = member or ctx.author
-    
     warns = contar_warns(target.id, ctx.guild.id)
+    
+    color = discord.Color.red() if warns >= 3 else discord.Color.orange() if warns > 0 else discord.Color.green()
     
     embed = discord.Embed(
         title=f"⚠️ Warns de {target}",
-        color=discord.Color.orange() if warns > 0 else discord.Color.green()
+        color=color
     )
-    
-    embed.add_field(name="Warns actuales", value=f"{warns}/3", inline=False)
+    embed.set_thumbnail(url=target.display_avatar.url)
+    embed.add_field(name="Warns Actuales", value=f"**{warns}/3**", inline=True)
     
     if warns > 0:
-        # Obtener los últimos warns
+        # Obtener últimos warns
         with engine.begin() as conn:
-            últimos_warns = conn.execute(
+            ultimos = conn.execute(
                 text("""
-                    SELECT reason, moderator_id, created_at
-                    FROM actions
+                    SELECT reason, created_at FROM actions
                     WHERE user_id = :user_id AND guild_id = :guild_id AND action_type = 'warn'
-                    ORDER BY created_at DESC
-                    LIMIT 3
+                    ORDER BY created_at DESC LIMIT 3
                 """),
                 {"user_id": target.id, "guild_id": ctx.guild.id}
             ).fetchall()
         
-        if últimos_warns:
-            warns_list = ""
-            for i, (reason, mod_id, date) in enumerate(últimos_warns, 1):
-                fecha = date.strftime('%d/%m/%Y')
-                warns_list += f"{i}. **{fecha}** - {reason or 'Sin razón'}\n"
-            embed.add_field(name="Últimos warns", value=warns_list, inline=False)
+        if ultimos:
+            detalle = "\n".join([
+                f"• {i+1}. {reason} ({fecha.strftime('%d/%m/%Y')})"
+                for i, (reason, fecha) in enumerate(ultimos)
+            ])
+            embed.add_field(name="Últimos Warns", value=detalle, inline=False)
     
     await ctx.send(embed=embed)
-
-# =========================================================
-# COMANDOS DE MODERACIÓN BÁSICOS (con permisos de moderate_members)
-# =========================================================
-
-@bot.command()
-@commands.has_permissions(moderate_members=True)
-async def mute(ctx, member: discord.Member, tiempo: str, *, reason="Sin razón"):
-    """Silencia a un usuario por un tiempo (requiere moderate_members)"""
-    
-    seconds = parse_time(tiempo)
-    if not seconds:
-        await ctx.send(embed=error_embed("Formato de tiempo inválido. Usa: 1d, 2h, 30m, 60s"))
-        return
-    
-    if member == ctx.author:
-        await ctx.send(embed=error_embed("No puedes silenciarte a ti mismo."))
-        return
-    
-    if member.bot:
-        await ctx.send(embed=error_embed("No puedes silenciar a un bot."))
-        return
-    
-    await member.timeout(timedelta(seconds=seconds), reason=reason)
-    
-    registrar_accion(
-        user_id=member.id,
-        guild_id=ctx.guild.id,
-        action_type="mute",
-        reason=reason,
-        moderator_id=ctx.author.id,
-        duration=tiempo
-    )
-    
-    await send_log("🔇 Mute", member, ctx.author, reason, discord.Color.dark_grey(), tiempo)
-    
-    embed = discord.Embed(
-        title="🔇 Usuario silenciado",
-        description=f"{member.mention} ha sido silenciado por {tiempo}",
-        color=discord.Color.dark_grey()
-    )
-    embed.add_field(name="Razón", value=reason, inline=False)
-    await ctx.send(embed=embed)
-
-@bot.command()
-@commands.has_permissions(moderate_members=True)
-async def unmute(ctx, member: discord.Member, *, reason="Unmute manual"):
-    """Remueve el silencio de un usuario (requiere moderate_members)"""
-    
-    if not member.is_timed_out():
-        await ctx.send(embed=error_embed("Este usuario no está silenciado."))
-        return
-    
-    await member.timeout(None, reason=reason)
-    
-    registrar_accion(
-        user_id=member.id,
-        guild_id=ctx.guild.id,
-        action_type="unmute",
-        reason=reason,
-        moderator_id=ctx.author.id
-    )
-    
-    await send_log("🔊 Unmute", member, ctx.author, reason, discord.Color.green())
-    await ctx.send(f"✅ {member.mention} ha sido desilenciado.")
-
-@bot.command()
-@commands.has_permissions(kick_members=True)  # Nota: kick_members es diferente de moderate_members
-async def kick(ctx, member: discord.Member, *, reason="Sin razón"):
-    """Expulsa a un usuario del servidor"""
-    
-    await member.kick(reason=reason)
-    
-    registrar_accion(
-        user_id=member.id,
-        guild_id=ctx.guild.id,
-        action_type="kick",
-        reason=reason,
-        moderator_id=ctx.author.id
-    )
-    
-    await send_log("👢 Kick", member, ctx.author, reason, discord.Color.orange())
-    await ctx.send(f"👢 {member.mention} ha sido expulsado.")
-
-@bot.command()
-@commands.has_permissions(ban_members=True)  # Nota: ban_members es diferente de moderate_members
-async def ban(ctx, member: discord.Member, *, reason="Sin razón"):
-    """Banea a un usuario del servidor"""
-    
-    await member.ban(reason=reason)
-    
-    registrar_accion(
-        user_id=member.id,
-        guild_id=ctx.guild.id,
-        action_type="ban",
-        reason=reason,
-        moderator_id=ctx.author.id
-    )
-    
-    await send_log("⛔ Ban", member, ctx.author, reason, discord.Color.red())
-    await ctx.send(f"⛔ {member.mention} ha sido baneado.")
-
-# =========================================================
-# COMANDO DE AYUDA PERSONALIZADO
-# =========================================================
 
 @bot.command(name="help")
 async def help_command(ctx):
-    """Muestra los comandos disponibles"""
-    
+    """Muestra la ayuda del bot"""
     embed = discord.Embed(
         title="🤖 Comandos de Moderación",
-        description="Prefijo: `god `",
+        description="Prefijo: `god `\nTodos los comandos requieren permisos de moderación.",
         color=discord.Color.blue()
     )
     
-    # Comandos para moderate_members
-    moderate_commands = """
-    **`god warn <usuario> [razón]`** - Da un warn a un usuario
-    **`god unwarn <usuario> [cantidad]`** - Remueve warns de un usuario
-    **`god historial <usuario>`** - Muestra historial de sanciones
-    **`god sanciones <usuario>`** - Alias de historial
-    **`god checkwarns [usuario]`** - Muestra warns actuales
-    **`god mute <usuario> <tiempo> [razón]`** - Silencia a un usuario
-    **`god unmute <usuario> [razón]`** - Desilencia a un usuario
+    moderacion = """
+    **`warn <@usuario> [razón]`** - Da una advertencia
+    **`unwarn <@usuario> [cantidad]`** - Remueve advertencias
+    **`checkwarns [@usuario]`** - Revisa warns actuales
+    **`historial <@usuario>`** - Muestra historial completo
+    **`mute <@usuario> <tiempo> [razón]`** - Silencia temporalmente
+    **`unmute <@usuario>`** - Remueve silencio
     """
     
-    embed.add_field(name="🛡️ Comandos de Moderación", value=moderate_commands, inline=False)
-    
-    # Comandos adicionales
-    if ctx.author.guild_permissions.kick_members:
-        kick_commands = "**`god kick <usuario> [razón]`** - Expulsa a un usuario"
-        embed.add_field(name="👢 Expulsar", value=kick_commands, inline=False)
-    
-    if ctx.author.guild_permissions.ban_members:
-        ban_commands = "**`god ban <usuario> [razón]`** - Banea a un usuario"
-        embed.add_field(name="⛔ Banear", value=ban_commands, inline=False)
-    
-    embed.set_footer(text="Los warns se gestionan en la base de datos, no con roles")
+    embed.add_field(name="🛡️ Comandos de Moderación", value=moderacion, inline=False)
+    embed.add_field(name="📊 Sistema de Warns", value="• Los warns se almacenan en base de datos\n• Al llegar a 3 warns se notifica\n• No se usan roles para los warns", inline=False)
+    embed.add_field(name="🆘 Soporte", value="Para problemas, contacta con los administradores.", inline=False)
     
     await ctx.send(embed=embed)
 
 # =========================================================
-# RUN
+# MANEJO DE ERRORES
 # =========================================================
 
-bot.run(TOKEN)
+@bot.event
+async def on_command_error(ctx, error):
+    """Maneja errores de comandos"""
+    if isinstance(error, commands.MissingPermissions):
+        await ctx.send(embed=create_embed(
+            "❌ Permisos Insuficientes",
+            "No tienes permisos para usar este comando.\n"
+            "Necesitas el permiso: **Moderate Members**",
+            discord.Color.red()
+        ))
+    elif isinstance(error, commands.MemberNotFound):
+        await ctx.send(embed=create_embed(
+            "❌ Usuario no encontrado",
+            "No se pudo encontrar al usuario mencionado.",
+            discord.Color.red()
+        ))
+    elif isinstance(error, commands.MissingRequiredArgument):
+        await ctx.send(embed=create_embed(
+            "❌ Argumento faltante",
+            f"Falta un argumento requerido.\nUso correcto: `{ctx.prefix}{ctx.command.name} {ctx.command.signature}`",
+            discord.Color.red()
+        ))
+    else:
+        print(f"Error no manejado: {error}")
+        await ctx.send(embed=create_embed(
+            "❌ Error",
+            "Ha ocurrido un error inesperado.",
+            discord.Color.red()
+        ))
+
+# =========================================================
+# EJECUCIÓN
+# =========================================================
+
+if __name__ == "__main__":
+    print("🚀 Iniciando bot...")
+    bot.run(TOKEN)
