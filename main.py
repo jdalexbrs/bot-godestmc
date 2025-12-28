@@ -170,37 +170,51 @@ async def on_ready():
 # =========================================================
 @bot.command()
 @commands.has_permissions(moderate_members=True)
-async def warn(ctx, member: discord.Member, *, reason="Sin razón"):
-    role = ctx.guild.get_role(WARN_ROLE_ID)
+async def warn(ctx, member: discord.Member, *, reason="No se especificó razón"):
+    registrar_accion(
+        user_id=member.id,
+        guild_id=ctx.guild.id,
+        action_type="warn",
+        reason=reason,
+        moderator_id=ctx.author.id
+    )
 
-    if role is None:
-        await ctx.send(
-            embed=discord.Embed(
-                title="Error de configuración",
-                description="El rol de warn no existe o el ID es incorrecto.",
-                color=discord.Color.red()
-            )
+    await send_log(
+        "⚠️ Warn",
+        member,
+        ctx.author,
+        reason,
+        discord.Color.yellow()
+    )
+
+    warns = contar_warns(member.id, ctx.guild.id)
+
+    await ctx.send(
+        embed=discord.Embed(
+            title="⚠️ Advertencia",
+            description=(
+                f"{member.mention} ha recibido una advertencia.\n\n"
+                f"**Total de warns:** {warns}/3"
+            ),
+            color=discord.Color.orange()
         )
-        return
+    )
 
-    await member.add_roles(role, reason=reason)
-
-    registrar_accion(member.id, "warn", reason, ctx.author.id)
-    await send_log("⚠️ Warn", member, ctx.author, reason, discord.Color.yellow())
-
-    warns = contar_warns(member.id)
+    # Sistema automático de 3 warns
     if warns >= 3:
         channel = bot.get_channel(WARN_ACTION_CHANNEL)
         if channel:
             await channel.send(
                 embed=discord.Embed(
-                    title="🚨 3 Advertencias",
-                    description=f"{member.mention} ha alcanzado 3 warns",
-                    color=discord.Color.orange()
+                    title="🚨 Usuario con 3 advertencias",
+                    description=(
+                        f"{member.mention} (`{member.id}`) ha alcanzado **3 advertencias**.\n"
+                        "Se recomienda aplicar una sanción."
+                    ),
+                    color=discord.Color.red()
                 )
             )
 
-    await ctx.send(f"{member.mention} advertido.")
 
 
 
