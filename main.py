@@ -209,6 +209,16 @@ def create_embed(title, description, color):
     """Crea un embed básico"""
     return discord.Embed(title=title, description=description, color=color)
 
+def tiene_permisos_moderacion(member):
+    """Verifica si un miembro tiene permisos de moderación"""
+    return (
+        member.guild_permissions.administrator or
+        member.guild_permissions.moderate_members or
+        member.guild_permissions.kick_members or
+        member.guild_permissions.ban_members or
+        member.guild_permissions.manage_messages
+    )
+
 # =========================================================
 # EVENTOS
 # =========================================================
@@ -234,9 +244,26 @@ async def on_ready():
 # =========================================================
 
 @bot.command()
-@commands.has_permissions(moderate_members=True)
-async def warn(ctx, member: discord.Member, *, reason="No se especificó razón"):
+async def warn(ctx, member: discord.Member = None, *, reason="No se especificó razón"):
     """Da un warn a un usuario"""
+    # Verificar permisos
+    if not tiene_permisos_moderacion(ctx.author):
+        await ctx.send(embed=create_embed(
+            "❌ Permisos Insuficientes",
+            "Necesitas permisos de moderación para usar este comando.\n"
+            "Permisos válidos: **Moderate Members**, **Kick Members**, **Ban Members**, **Manage Messages** o **Administrator**",
+            discord.Color.red()
+        ))
+        return
+    
+    if member is None:
+        await ctx.send(embed=create_embed(
+            "❌ Usuario requerido",
+            f"Debes mencionar a un usuario.\nUso: `{ctx.prefix}warn @usuario [razón]`",
+            discord.Color.red()
+        ))
+        return
+    
     if member == ctx.author:
         await ctx.send(embed=create_embed("❌ Error", "No puedes advertirte a ti mismo.", discord.Color.red()))
         return
@@ -244,6 +271,16 @@ async def warn(ctx, member: discord.Member, *, reason="No se especificó razón"
     if member.bot:
         await ctx.send(embed=create_embed("❌ Error", "No puedes advertir a un bot.", discord.Color.red()))
         return
+    
+    # Verificar jerarquía (excepto para el owner)
+    if ctx.author.id != ctx.guild.owner_id:
+        if member.top_role >= ctx.author.top_role:
+            await ctx.send(embed=create_embed(
+                "❌ Error de Jerarquía",
+                f"No puedes advertir a {member.mention} porque tiene un rol igual o superior al tuyo.",
+                discord.Color.red()
+            ))
+            return
     
     registrar_accion(
         member.id, ctx.guild.id, "warn", 
@@ -280,9 +317,25 @@ async def warn(ctx, member: discord.Member, *, reason="No se especificó razón"
             )
 
 @bot.command()
-@commands.has_permissions(moderate_members=True)
-async def unwarn(ctx, member: discord.Member, cantidad: int = 1):
+async def unwarn(ctx, member: discord.Member = None, cantidad: int = 1):
     """Remueve warns de un usuario"""
+    # Verificar permisos
+    if not tiene_permisos_moderacion(ctx.author):
+        await ctx.send(embed=create_embed(
+            "❌ Permisos Insuficientes",
+            "Necesitas permisos de moderación para usar este comando.",
+            discord.Color.red()
+        ))
+        return
+    
+    if member is None:
+        await ctx.send(embed=create_embed(
+            "❌ Usuario requerido",
+            f"Debes mencionar a un usuario.\nUso: `{ctx.prefix}unwarn @usuario [cantidad]`",
+            discord.Color.red()
+        ))
+        return
+    
     warns_actuales = contar_warns(member.id, ctx.guild.id)
     
     if warns_actuales == 0:
@@ -312,9 +365,25 @@ async def unwarn(ctx, member: discord.Member, cantidad: int = 1):
     await ctx.send(embed=embed)
 
 @bot.command(name="historial")
-@commands.has_permissions(moderate_members=True)
-async def historial(ctx, member: discord.Member):
+async def historial(ctx, member: discord.Member = None):
     """Muestra el historial de un usuario"""
+    # Verificar permisos
+    if not tiene_permisos_moderacion(ctx.author):
+        await ctx.send(embed=create_embed(
+            "❌ Permisos Insuficientes",
+            "Necesitas permisos de moderación para usar este comando.",
+            discord.Color.red()
+        ))
+        return
+    
+    if member is None:
+        await ctx.send(embed=create_embed(
+            "❌ Usuario requerido",
+            f"Debes mencionar a un usuario.\nUso: `{ctx.prefix}historial @usuario`",
+            discord.Color.red()
+        ))
+        return
+    
     acciones = obtener_historial(member.id, ctx.guild.id)
     warns = contar_warns(member.id, ctx.guild.id)
     
@@ -351,14 +420,76 @@ async def historial(ctx, member: discord.Member):
     await ctx.send(embed=embed)
 
 @bot.command()
-@commands.has_permissions(moderate_members=True)
-async def mute(ctx, member: discord.Member, tiempo: str, *, reason="Sin razón"):
+async def mute(ctx, member: discord.Member = None, tiempo: str = None, *, reason="Sin razón"):
     """Silencia a un usuario temporalmente"""
+    # Verificar permisos
+    if not tiene_permisos_moderacion(ctx.author):
+        await ctx.send(embed=create_embed(
+            "❌ Permisos Insuficientes",
+            "Necesitas permisos de moderación para usar este comando.",
+            discord.Color.red()
+        ))
+        return
+    
+    if member is None or tiempo is None:
+        await ctx.send(embed=create_embed(
+            "❌ Argumentos faltantes",
+            f"Uso correcto: `{ctx.prefix}mute @usuario <tiempo> [razón]`\n"
+            "Ejemplo: `god mute @usuario 1h Spam`",
+            discord.Color.red()
+        ))
+        return
+    
+    if member == ctx.author:
+        await ctx.send(embed=create_embed(
+            "❌ Error",
+            "No puedes silenciarte a ti mismo.",
+            discord.Color.red()
+        ))
+        return
+    
+    if member.bot:
+        await ctx.send(embed=create_embed(
+            "❌ Error",
+            "No puedes silenciar a un bot.",
+            discord.Color.red()
+        ))
+        return
+    
+    # Verificar jerarquía de roles (excepto para el owner)
+    if ctx.author.id != ctx.guild.owner_id:
+        if member.top_role >= ctx.author.top_role:
+            await ctx.send(embed=create_embed(
+                "❌ Error de Jerarquía",
+                f"No puedes silenciar a {member.mention} porque tiene un rol igual o superior al tuyo.",
+                discord.Color.red()
+            ))
+            return
+    
+    # Verificar que el bot pueda silenciar al usuario
+    if member.top_role >= ctx.guild.me.top_role:
+        await ctx.send(embed=create_embed(
+            "❌ Error de Jerarquía del Bot",
+            f"No puedo silenciar a {member.mention} porque tiene un rol igual o superior al mío.\n"
+            "Mueve mi rol más arriba en la jerarquía.",
+            discord.Color.red()
+        ))
+        return
+    
     seconds = parse_time(tiempo)
     if not seconds:
         await ctx.send(embed=create_embed(
             "❌ Error",
             "Formato de tiempo inválido. Usa: `1d` (días), `2h` (horas), `30m` (minutos), `60s` (segundos)",
+            discord.Color.red()
+        ))
+        return
+    
+    # Verificar que el tiempo no exceda el máximo permitido (28 días)
+    if seconds > 2419200:  # 28 días en segundos
+        await ctx.send(embed=create_embed(
+            "❌ Error",
+            "El tiempo máximo de silencio es de 28 días.",
             discord.Color.red()
         ))
         return
@@ -386,7 +517,11 @@ async def mute(ctx, member: discord.Member, tiempo: str, *, reason="Sin razón")
     except discord.Forbidden:
         await ctx.send(embed=create_embed(
             "❌ Error de Permisos",
-            "No tengo permisos para silenciar a este usuario.",
+            "No tengo permisos para silenciar a este usuario.\n"
+            "Asegúrate de que:\n"
+            "• El bot tiene el permiso **Aislar miembros**\n"
+            "• El rol del bot está por encima del rol del usuario\n"
+            "• El usuario no es el dueño del servidor",
             discord.Color.red()
         ))
     except Exception as e:
@@ -397,9 +532,25 @@ async def mute(ctx, member: discord.Member, tiempo: str, *, reason="Sin razón")
         ))
 
 @bot.command()
-@commands.has_permissions(moderate_members=True)
-async def unmute(ctx, member: discord.Member):
+async def unmute(ctx, member: discord.Member = None):
     """Remueve el silencio de un usuario"""
+    # Verificar permisos
+    if not tiene_permisos_moderacion(ctx.author):
+        await ctx.send(embed=create_embed(
+            "❌ Permisos Insuficientes",
+            "Necesitas permisos de moderación para usar este comando.",
+            discord.Color.red()
+        ))
+        return
+    
+    if member is None:
+        await ctx.send(embed=create_embed(
+            "❌ Usuario requerido",
+            f"Debes mencionar a un usuario.\nUso: `{ctx.prefix}unmute @usuario`",
+            discord.Color.red()
+        ))
+        return
+    
     if not member.is_timed_out():
         await ctx.send(embed=create_embed(
             "ℹ️ Información",
@@ -435,9 +586,17 @@ async def unmute(ctx, member: discord.Member):
         ))
 
 @bot.command(name="checkwarns")
-@commands.has_permissions(moderate_members=True)
 async def checkwarns(ctx, member: discord.Member = None):
     """Revisa los warns de un usuario"""
+    # Verificar permisos
+    if not tiene_permisos_moderacion(ctx.author):
+        await ctx.send(embed=create_embed(
+            "❌ Permisos Insuficientes",
+            "Necesitas permisos de moderación para usar este comando.",
+            discord.Color.red()
+        ))
+        return
+    
     target = member or ctx.author
     warns = contar_warns(target.id, ctx.guild.id)
     
@@ -479,7 +638,7 @@ async def ayuda(ctx):
     """Muestra la ayuda del bot"""
     embed = discord.Embed(
         title="🤖 Comandos de Moderación",
-        description="Prefijo: `god `\nTodos los comandos requieren permisos de moderación.",
+        description="Prefijo: `god `\n\n**Permisos válidos para usar los comandos:**\n• Moderate Members (Aislar miembros)\n• Kick Members\n• Ban Members\n• Manage Messages\n• Administrator",
         color=discord.Color.blue()
     )
     
@@ -493,6 +652,7 @@ async def ayuda(ctx):
     """
     
     embed.add_field(name="🛡️ Comandos de Moderación", value=moderacion, inline=False)
+    embed.add_field(name="⏱️ Formatos de tiempo", value="`1d` (días), `2h` (horas), `30m` (minutos), `60s` (segundos)", inline=False)
     embed.add_field(name="📊 Sistema de Warns", value="• Los warns se almacenan en base de datos\n• Al llegar a 3 warns se notifica\n• No se usan roles para los warns", inline=False)
     embed.add_field(name="🆘 Soporte", value="Para problemas, contacta con los administradores.", inline=False)
     
@@ -509,7 +669,7 @@ async def on_command_error(ctx, error):
         await ctx.send(embed=create_embed(
             "❌ Permisos Insuficientes",
             "No tienes permisos para usar este comando.\n"
-            "Necesitas el permiso: **Moderate Members**",
+            "Necesitas alguno de estos permisos: **Moderate Members**, **Kick Members**, **Ban Members**, **Manage Messages** o **Administrator**",
             discord.Color.red()
         ))
     elif isinstance(error, commands.MemberNotFound):
@@ -525,7 +685,6 @@ async def on_command_error(ctx, error):
             discord.Color.red()
         ))
     elif isinstance(error, commands.CommandNotFound):
-        # Sugerir usar el comando ayuda
         embed = create_embed(
             "❌ Comando no encontrado",
             f"El comando `{ctx.invoked_with}` no existe.\n\nUsa `{ctx.prefix}ayuda` para ver los comandos disponibles.",
