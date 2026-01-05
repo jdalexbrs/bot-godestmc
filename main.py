@@ -1296,7 +1296,7 @@ async def información_command(ctx):
     # Información específica del servidor (personalizable)
     embed.add_field(
         name="🎮 Minecraft Java", 
-        value="```IP: mc.godestmc.xyz\nVersión: 1.8 - 1.21.10```", 
+        value="```IP: mc.godestmc.xyz\nVersión: 1.8 - 1.21.11```", 
         inline=False
     )
     
@@ -1308,8 +1308,9 @@ async def información_command(ctx):
     
     embed.add_field(
         name="🔗 Enlaces importantes", 
-        value="[📜 Reglas](https://discord.com/channels/1401779980945592400/1402405577027752085) • "
-              "[🛒 Tienda](PROXIMAMENTE) • "
+        value="[📜 Reglas](https://discord.com/channels/1401779980945592400/1402405577027752085) • ",
+              "[🛒 Tienda](PROXIMAMENTE) • ",
+              "[📞 Web principal](Abre un ticket)",
               "[📞 Soporte](Abre un ticket)", 
         inline=False
     )
