@@ -1306,12 +1306,10 @@ async def información_command(ctx):
         inline=False
     )
     
+    # ENLACES IMPORTANTES - CORREGIDO CON SALTOS DE LÍNEA
     embed.add_field(
         name="🔗 Enlaces importantes", 
-        value="[📜 Reglas](https://discord.com/channels/1401779980945592400/1402405577027752085) • ",
-              "[🛒 Tienda](PROXIMAMENTE) • ",
-              "[📞 Web principal](Abre un ticket)",
-              "[📞 Soporte](Abre un ticket)", 
+        value="[📜 Reglas](https://discord.com/channels/1401779980945592400/1402405577027752085)\n[🛒 Tienda](PROXIMAMENTE)\n[📞 Web principal](PROXIMAMENTE)\n[📞 Soporte](Abre un ticket en el canal correspondiente)",
         inline=False
     )
     
