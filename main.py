@@ -4,6 +4,8 @@ import os, re, asyncio, json
 from datetime import datetime, timedelta
 from sqlalchemy import create_engine, text
 from typing import Optional
+from urllib.parse import quote_plus
+
 
 # =========================================================
 # CONFIGURACIÓN
@@ -28,6 +30,7 @@ DB_HOST = os.getenv("DB_HOST")
 DB_PORT = os.getenv("DB_PORT")
 DB_USER = os.getenv("DB_USER")
 DB_PASSWORD = os.getenv("DB_PASSWORD")
+DB_PASSWORD_ESCAPED = quote_plus(DB_PASSWORD)
 DB_NAME = os.getenv("DB_NAME")
 
 # IDs y Canales
@@ -57,10 +60,11 @@ bot = commands.Bot(
 
 try:
     engine = create_engine(
-        f"mysql+mysqlconnector://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}",
+        f"mysql+mysqlconnector://{DB_USER}:{DB_PASSWORD_ESCAPED}@{DB_HOST}:{DB_PORT}/{DB_NAME}",
         pool_pre_ping=True,
         pool_recycle=280
     )
+
     print("✅ Conexión a la base de datos configurada")
 except Exception as e:
     print(f"❌ Error al conectar a la base de datos MySQL: {e}")
@@ -460,7 +464,8 @@ async def on_ready():
 # =========================================================
 
 @bot.command(name="warn")
-async def warn_command(ctx, member: discord.Member = None, *, reason="No se especificó razón"):
+async def warn_command(ctx, member: discord.Member, *, reason: str = "No se especificó razón"):
+
     """Da un warn a un usuario"""
     # Verificar permisos
     if not tiene_permisos_moderacion(ctx.author):
